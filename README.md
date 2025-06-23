@@ -409,7 +409,8 @@ Key User Flows Explained:
    - May receive prorated fee refund (up to 182 days)
    - Withdraws collateral after full repayment
 
-- Issues
+--- 
+**Issues**: 
 
 Within thic poc's cdp currently in order to redeem-kusd we have to iterate over all vessels in order to get the LTV, and sort them by their LTV ratio,
 this will exhaust gas. So it would probably be best to offload this process to a indexer.
