@@ -10,9 +10,9 @@ The CDP module lets users lock KDA collateral in individual “vessels” and bo
 The Stability Pool holds users’ kUSD deposits and automatically absorbs the debt of undercollateralized CDP vaults during liquidations, exchanging pooled kUSD for KDA collateral. Depositors earn KDA yield proportional to their share of the pool each time a liquidation occurs, aligning incentives to keep the system solvent.
 
 # Files:
-** kusd.pact (kUSD Stablecoin) borrowed from brale **
-** cdp.pact (Collateralized Debt Positions)**
-** stability-pool.pact` (Stability Pool)**
+- ** kusd.pact (kUSD Stablecoin) borrowed from brale **
+- ** cdp.pact (Collateralized Debt Positions)**
+- ** stability-pool.pact` (Stability Pool)**
 
 --
 
@@ -675,7 +675,7 @@ sequenceDiagram
 This way the cdp would handle single vaults instead of going over all vaults
 
 ```lsp
-(defun redeem-from-vessel (vaultKey:string redeemAmount:decimal)
+(defun redeem-kusd (vaultKey:string redeemAmount:decimal)
   @doc "Redeem specific amount from a single vessel"
   (let* (
          ; Fetch the up-to-date KDA/USD price from the oracle
