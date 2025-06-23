@@ -902,3 +902,7 @@ sequenceDiagram
     Escrow->>KUSD: transfer(user, ESCROW_VAULT, amount)
     Note right of KUSD: kUSD removed from circulation
 ```
+
+This way fungible is a entity by itself, where the contract has no control over it, which makes it less tighly coupled.
+(code wasn't update to match these latest changes)
+
