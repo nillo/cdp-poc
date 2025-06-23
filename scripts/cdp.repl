@@ -1,0 +1,61 @@
+; ## Set namespace and load defaults
+(load "../contracts/tests/set-defaults.repl")
+
+; ## Load Keysets for KUSD and CDP
+(begin-tx "Load Keysets")
+  (env-data {
+    "admin-keyset": {"keys": ["admin"], "pred": "keys-all"},
+    "supply-manager-keyset": {"keys": ["supply-manager"], "pred": "keys-all"},
+    "freeze-manager-keyset": {"keys": ["freeze-manager"], "pred": "keys-all"},
+    "pool-admin-keyset": {"keys": ["pool-admin"], "pred": "keys-all"},
+    "oracle-keyset":     {"keys": ["oracle"], "pred": "keys-all"},
+    "cdp-admin-keyset": {"keys": ["cdp-admin"], "pred": "keys-all"}
+  })
+  (load "../contracts/tests/kusd.keys.pact")
+  (load "../contracts/tests/cdp.keys.pact")
+  (load "../contracts/tests/stability-pool.keys.pact")
+(commit-tx)
+
+; ## Contract Deployment
+(begin-tx "Load Contracts")
+  (env-data { 'ns: "free", 'upgrade: false })
+(env-sigs [
+    { 'key: "admin", 'caps: [] },
+    { 'key: "cdp-admin", 'caps: [] },
+    { 'key: "pool-admin", 'caps: [] }
+  ])
+  (load "../contracts/kusd.pact")
+  (load "../contracts/stability-pool.pact")
+  (load "../contracts/cdp.pact")
+  (env-gasmodel 'table)
+  (env-gaslimit 150000)
+  (expect "Typecheck KUSD" () (typecheck "free.kusd-usd"))
+  (expect "Typecheck CDP" () (typecheck "free.cdp"))
+(commit-tx)
+
+;  ; ## Account Creation
+;  (begin-tx "Create Accounts")
+;    (env-data {
+;      "alice-guard": {"keys": ["alice"], "pred": "keys-all"},
+;      "charlie-guard": {"keys": ["charlie"], "pred": "keys-all"}
+;    })
+;    (env-sigs [])
+;    (free.kusd-usd.create-account "alice" (read-keyset "alice-guard"))
+;    (free.kusd-usd.create-account "charlie" (read-keyset "charlie-guard"))
+;  (commit-tx)
+
+;  ; ## CDP Bootstrap: Initialize oracle
+;  (begin-tx "CDP Bootstrap")
+;    (env-sigs [{ 'key: "oracle", 'caps: [(free.cdp.READ_ORACLE)] }])  ;; Add READ_ORACLE for oracle insertion
+;    (insert free.cdp.oracle-prices "KDA" { "symbol": "KDA", "price": 1.0, "timestamp": (time "2025-06-20T00:00:00Z") })
+;    (env-sigs [{ 'key: "supply-manager", 'caps: [(free.kusd-usd.SUPPLY_MANAGER)] }])
+;    (free.kusd-usd.mint "alice" 200.0)
+;    (free.kusd-usd.mint "charlie" 200.0)
+;  (commit-tx)
+
+;  ; ## 1) Open / Duplicate-open vault
+;  (begin-tx "Vault Open Tests")
+;    (env-sigs [{ 'key: "alice", 'caps: [(free.cdp.OPEN_VAULT "alice")] }])  ;; Add OPEN_VAULT capability
+;    (free.cdp.open-vault)
+;    (expect-failure "Duplicate open" "Vault already exists for this account" (free.cdp.open-vault))
+;  (commit-tx)

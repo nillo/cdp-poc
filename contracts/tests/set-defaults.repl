@@ -1,0 +1,27 @@
+(begin-tx "Load root modules and our three contracts")
+  (env-data
+      { 'ns-admin-keyset: []
+      , 'ns-genesis-keyset:[]
+      , 'ns-operate-keyset:[] })
+  (load "../../root/fungible-v2.pact")
+  (load "../../root/fungible-xchain-v1.pact")
+  (load "../../root/coin.pact")
+  (load "../../root/ns.pact")
+
+  (expect "root modules are fixed to latest version"
+    [ "YxE-KgC6JmKmCcgKTJmlEn_I58I4EXmhfrvzX7berYk" ; v2
+      "h89ic3ghz23Rjk0pHNKtFOwrvSs7mbmuqloVXOhl2GI" ; v1
+      "eAnZwwSKgXn0OT0gYVyuvr7BdEoUE9qgDx_jgnKoxlI" ; v2
+    ]
+    (map (lambda (x) (at "hash" (describe-module x)))
+      [ "fungible-v2"
+        "fungible-xchain-v1"
+        "ns"
+      ]))
+
+  (describe-module "ns")
+
+  (env-data { 'ns: "free"})
+
+  (define-namespace (read-msg 'ns) (sig-keyset) (sig-keyset))
+(commit-tx)

@@ -1,0 +1,588 @@
+; ## Set namespace
+(load "../contracts/tests/set-defaults.repl")
+
+; ## Load Keysets
+(begin-tx)
+  (env-data {
+    "admin-keyset": {"keys": ["admin"], "pred": "keys-all"},
+    "supply-manager-keyset": {"keys": ["supply-manager"], "pred": "keys-all"},
+    "freeze-manager-keyset": {"keys": ["freeze-manager"], "pred": "keys-all"}
+    })
+
+    (load "../contracts/tests/kusd.keys.pact")
+(commit-tx)
+
+
+; ## Contract Deployment
+(begin-tx "Load contracts")
+
+  (env-data { 'ns: "free", 'upgrade: false })
+
+  (env-sigs [
+    { 'key: 'admin
+    ,'caps: []
+    }
+  ])
+
+  (load "../contracts/kusd.pact")
+
+  (env-gasmodel 'table)(env-gaslimit 150000)
+
+  (expect "typechecks"
+    ()
+    (typecheck "free.kusd-usd"))
+
+(commit-tx)
+
+(begin-tx "Validate utilities")
+
+  (expect-failure "init fails if it has already been called"
+    "Error during database operation: Value already found while in Insert mode in table free.kusd-usd_token-info-table at key \"\""
+    (free.kusd-usd.init)
+  )
+
+  (env-sigs [])
+
+  (expect-failure "init fails if not called by governance"
+    "Keyset failure"
+    (free.kusd-usd.init)
+  )
+
+  (expect "get precision"
+    12
+    (free.kusd-usd.precision))
+
+  (expect "validate token metadata"
+    {"name": "KUSD","supply": 0.0,"symbol": "kUSD"}
+    (free.kusd-usd.get-metadata)
+  )
+
+  (expect-failure "unit check fails if precision exceeds min precision"
+    "Amount violates minimum precision: 1.1234567891023"
+    (free.kusd-usd.enforce-unit 1.1234567891023)
+  )
+
+  (expect "unit check succeeds if precision is within min precision"
+    true
+    (free.kusd-usd.enforce-unit 1.123456789)
+  )
+
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user1-key": {"keys": ["e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"], "pred": "keys-all"}
+    ,"user1-bogus-key": {"keys": ["e4c"], "pred": "keys-all"}
+  })
+
+  (expect-failure "principal check fails if account and guard combination don't represent a principal"
+    "Principal/guard name mismatch: all account names are required to be valid principals"
+    (free.kusd-usd.enforce-principal (read-string "user1") (read-keyset "user1-bogus-key"))
+  )
+
+  (expect "principal check succeeds if account and guard combination represent a principal"
+    true
+    (free.kusd-usd.enforce-principal (read-string "user1") (read-keyset "user1-key"))
+  )
+(commit-tx)
+
+; ## Account Creation
+(begin-tx "Account creation")
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user1-key": {"keys": ["e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"], "pred": "keys-all"}
+    ,"user2-key": {"keys": ["c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"], "pred": "keys-all"}
+  })
+
+  (expect "Create account"
+    "Write succeeded"
+    (free.kusd-usd.create-account (read-string "user1") (read-keyset 'user1-key)))
+
+  (expect "Create account"
+    "Write succeeded"
+    (free.kusd-usd.create-account (read-string "user2") (read-keyset 'user2-key)))
+
+  (expect "Opening balances are zero"
+    [0.0 0.0]
+    [
+      (free.kusd-usd.get-balance (read-string "user1"))
+      (free.kusd-usd.get-balance (read-string "user2"))
+    ]
+  )
+
+  (expect-failure "create-account fails if account already exists"
+    "Error during database operation: Value already found while in Insert mode in table free.kusd-usd_token-table at key \"k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3\""
+    (free.kusd-usd.create-account (read-string "user1") (read-keyset "user1-key"))
+  )
+
+  (expect-failure "rotating account guard is not allowed"
+    "It is unsafe for principal accounts to rotate their guard"
+    (free.kusd-usd.rotate (read-string "user1") (read-keyset "user2-key"))
+  )
+
+(commit-tx)
+
+; ## 3. Minting
+(begin-tx "Mint tokens")
+
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+  })
+
+  (expect-failure "Minting fails without supply-manager sig"
+    "Keyset failure"
+    (free.kusd-usd.mint (read-string "user1") 100.0)
+  )
+
+  (env-sigs [
+    { 'key: 'supply-manager
+    ,'caps: [(free.kusd-usd.SUPPLY_MANAGER)]
+    }
+  ])
+
+  (expect "Mint tokens to user1"
+    true
+    (free.kusd-usd.mint (read-string "user1") 100.0))
+
+  (expect "Check balance after mint"
+    100.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Validate supply"
+    100.0
+    (at 'supply (free.kusd-usd.get-metadata))
+  )
+
+  (expect "Minting events"
+    [{"name": "free.kusd-usd.MINT", "params": [100.0, "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"]}
+    {"name": "free.kusd-usd.SUPPLY_UPDATED", "params": [100.0]}]
+    (map (remove "module-hash") (env-events true)))
+
+(commit-tx)
+
+; ## Transferring
+(begin-tx "Transfer tokens")
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user3": "k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    ,"user3-key": {"keys": ["6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"], "pred": "keys-all"}
+  })
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user1") (read-string "user2") 25.0)]
+    }
+  ])
+
+  (expect "Transfer from user1 to user2"
+    "Write succeeded"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user2") 25.0))
+
+  (expect "Check balance user1"
+    75.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Check balance user2"
+    25.0
+    (free.kusd-usd.get-balance (read-string "user2")))
+
+  (expect "Transfer events"
+    [{"name": "free.kusd-usd.TRANSFER", "params": ["k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3", "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7", 25.0]}]
+    (map (remove "module-hash") (env-events true)))
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user1") (read-string "user1") 25.0)]
+    }
+  ])
+
+  (expect-failure "transfer fails if sender and receiver are equal"
+    "Sender cannot be the receiver of a transfer"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user1") 25.0)
+  )
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user1") (read-string "user2") 0.0)]
+    }
+  ])
+
+  (expect-failure "transfer fails if amount is zero"
+    "Amount must be positive"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user2") 0.0)
+  )
+
+  (expect-failure "transfer fails if amount is negative"
+    "Amount must be positive"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user2") -25.0)
+  )
+
+  (env-sigs [
+    { 'key: "6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user3") (read-string "user2") 25.0)]
+    }
+  ])
+
+  (expect-failure "transfer fails if sender does not exist"
+    "No value found in table free.kusd-usd_token-table for key: k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    (free.kusd-usd.transfer (read-string "user3") (read-string "user2") 25.0)
+  )
+
+  (env-sigs [
+    { 'key: "e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user1") (read-string "user3") 25.0)]
+    }
+  ])
+
+  (expect-failure "transfer fails if receiver does not exist"
+    "No value found in table free.kusd-usd_token-table for key: k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user3") 25.0)
+  )
+
+  (expect "transfer-create creates the account on transfer"
+    "Write succeeded"
+    (free.kusd-usd.transfer-create (read-string "user1") (read-string "user3") (read-keyset "user3-key") 25.0)
+  )
+
+  (expect "balance is updated correctly"
+    25.0
+    (free.kusd-usd.get-balance (read-string "user3"))
+  )
+
+  (expect-failure
+    "direct call to credit fails"
+    "require-capability: not granted: "
+    (free.kusd-usd.credit (read-string "user3") (read-keyset "user3-key") 1.0))
+
+  (expect-failure
+    "direct call to debit fails"
+    "require-capability: not granted: "
+    (free.kusd-usd.debit (read-string "user3") 1.0))
+
+(commit-tx)
+
+
+; ## Transferring cross-chain
+(begin-tx "Transfer tokens")
+  (env-chain-data { "chain-id" : "0" })
+  (env-hash (hash "transfer-crosschain"))
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user1-key": {"keys": ["e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"], "pred": "keys-all"}
+    ,"user2-key": {"keys": ["c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"], "pred": "keys-all"}
+  })
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER_XCHAIN (read-string "user1") (read-string "user2") 1.0 "0")]
+    }
+  ])
+
+  (expect "Check balance user1"
+    50.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Check balance user2"
+    25.0
+    (free.kusd-usd.get-balance (read-string "user2")))
+
+  (expect-failure "Transfer from user1 to user2 on the same chain"
+    "cannot run cross-chain transfers to the same chain"
+    (free.kusd-usd.transfer-crosschain (read-string "user1") (read-string "user2") (read-keyset "user2-key") "0" 1.0)
+  )
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER_XCHAIN (read-string "user1") (read-string "user2") 1.0 "1")]
+    }
+  ])
+
+  (expect "Transfer from user1 to user2 on a different chain succeeds"
+    {
+      "amount": 1.0,
+      "receiver": (read-string "user2"),
+      "receiver-guard": (read-keyset "user2-key")
+      ,"source-chain": "0"
+    }
+    (free.kusd-usd.transfer-crosschain (read-string "user1") (read-string "user2") (read-keyset "user2-key") "1" 1.0)
+  )
+  
+  (expect "Transfer-crosschain events"
+    [ {"name": "free.kusd-usd.TRANSFER_XCHAIN","params": [(read-string "user1") (read-string "user2") 1.0 "1"]} 
+      {"name": "free.kusd-usd.TRANSFER","params": [(read-string "user1") "" 1.0]} 
+      {"name": "free.kusd-usd.SUPPLY_UPDATED","params": [99.0]} 
+      {"name": "pact.X_YIELD","params": ["1" "free.kusd-usd.transfer-crosschain" [(read-string "user1") (read-string "user2") (read-keyset "user2-key") "1" 1.0]]}
+    ]
+    (map (remove "module-hash") (env-events true)))
+
+  (env-chain-data { "chain-id" : "1" })
+ 
+  (expect
+    "Finish step 2 of the cross-chain transfer"
+    true
+    (continue-pact 1 false (hash "transfer-crosschain")))
+    
+  (expect "Check balance is debited from user1"
+    49.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Check balance is credited on user2"
+    26.0
+    (free.kusd-usd.get-balance (read-string "user2")))
+
+  (expect "Transfer-crosschain events"
+    [ {"name": "free.kusd-usd.TRANSFER","params": ["" (read-string "user2") 1.0]} 
+      {"name": "free.kusd-usd.TRANSFER_XCHAIN_RECD","params": ["" (read-string "user2") 1.0 "0"]} 
+      {"name": "free.kusd-usd.SUPPLY_UPDATED","params": [100.0]} 
+      {"name": "pact.X_RESUME","params": ["0" "free.kusd-usd.transfer-crosschain" [(read-string "user1") (read-string "user2") (read-keyset "user2-key") "1" 1.0]]}
+    ]
+    (map (remove "module-hash") (env-events true)))
+
+(rollback-tx)
+
+; ## Transferring cross-chain
+(begin-tx "Transfer tokens from user1 to user1 on a different chain")
+  (env-chain-data { "chain-id" : "0" })
+  (env-hash (hash "transfer-crosschain-1"))
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user1-key": {"keys": ["e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"], "pred": "keys-all"}
+    ,"user2-key": {"keys": ["c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"], "pred": "keys-all"}
+  })
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER_XCHAIN (read-string "user1") (read-string "user1") 1.0 "0")]
+    }
+  ])
+
+  (expect "Check balance user1"
+    50.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect-failure "Transfer from user1 to user2 on the same chain"
+    "cannot run cross-chain transfers to the same chain"
+    (free.kusd-usd.transfer-crosschain (read-string "user1") (read-string "user1") (read-keyset "user2-key") "0" 1.0)
+  )
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER_XCHAIN (read-string "user1") (read-string "user1") 1.0 "1")]
+    }
+  ])
+
+  (expect "Transfer from user1 to user1 on a different chain succeeds"
+    {
+      "amount": 1.0,
+      "receiver": (read-string "user1"),
+      "receiver-guard": (read-keyset "user1-key")
+      ,"source-chain": "0"
+    }
+    (free.kusd-usd.transfer-crosschain (read-string "user1") (read-string "user1") (read-keyset "user1-key") "1" 1.0)
+  )
+  
+  (expect "Transfer-crosschain events"
+    [ {"name": "free.kusd-usd.TRANSFER_XCHAIN","params": [(read-string "user1") (read-string "user1") 1.0 "1"]} 
+      {"name": "free.kusd-usd.TRANSFER","params": [(read-string "user1") "" 1.0]} 
+      {"name": "free.kusd-usd.SUPPLY_UPDATED","params": [99.0]} 
+      {"name": "pact.X_YIELD","params": ["1" "free.kusd-usd.transfer-crosschain" [(read-string "user1") (read-string "user1") (read-keyset "user1-key") "1" 1.0]]}
+    ]
+    (map (remove "module-hash") (env-events true)))
+
+  (expect "Check balance user1 is debited after step 1"
+    49.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (env-chain-data { "chain-id" : "1" })
+ 
+  (expect
+    "Finish step 2 of the cross-chain transfer"
+    true
+    (continue-pact 1 false (hash "transfer-crosschain-1")))
+    
+  (expect "Check balance user1 is credited after step 2"
+    50.0
+    (free.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Transfer-crosschain events"
+    [ {"name": "free.kusd-usd.TRANSFER","params": ["" (read-string "user1") 1.0]} 
+      {"name": "free.kusd-usd.TRANSFER_XCHAIN_RECD","params": ["" (read-string "user1") 1.0 "0"]} 
+      {"name": "free.kusd-usd.SUPPLY_UPDATED","params": [100.0]} 
+      {"name": "pact.X_RESUME","params": ["0" "free.kusd-usd.transfer-crosschain" [(read-string "user1") (read-string "user1") (read-keyset "user1-key") "1" 1.0]]}
+    ]
+    (map (remove "module-hash") (env-events true)))
+
+(commit-tx)
+
+; ## Burning
+(begin-tx "Burn tokens")
+
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+  })
+
+  (expect-failure "Burn tokens from user2 without sig fails"
+    "Keyset failure"
+    (free.kusd-usd.burn (read-string "user2") 5.0))
+
+  (env-sigs [
+    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
+    ,'caps: [(free.kusd-usd.DEBIT (read-string "user2"))]
+    }
+  ])
+
+  (expect "Burn tokens from user2"
+    true
+    (free.kusd-usd.burn (read-string "user2") 5.0))
+
+  (expect "Check balance after burn"
+    20.0
+    (free.kusd-usd.get-balance (read-string "user2")))
+
+  (expect "Validate supply"
+    95.0
+    (at 'supply (free.kusd-usd.get-metadata))
+  )
+
+  (expect "Burning events"
+    [{"name": "free.kusd-usd.BURN", "params": [5.0, "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}
+     {"name": "free.kusd-usd.SUPPLY_UPDATED", "params": [95.0]}]
+    (map (remove "module-hash") (env-events true)))
+
+  (expect-failure "Updating supply without capability fails"
+    "require-capability: not granted: "
+    (free.kusd-usd.update-supply 10.0))
+
+(commit-tx)
+
+; ## Freeze Account
+(begin-tx "Freeze account")
+
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+  })
+
+  (expect "Validate that user2 is not frozen"
+    false
+    (at "frozen" (free.kusd-usd.kusd-account-details (read-string "user2")))
+  )
+
+  (expect-failure "Freeze user2 account without sig fails"
+    "Keyset failure"
+    (free.kusd-usd.freeze-account (read-string "user2")))
+
+  (env-sigs [
+    { 'key: 'freeze-manager
+    ,'caps: [(free.kusd-usd.FREEZE_MANAGER)]
+    }
+  ])
+
+  (expect "Freeze user2 account"
+    "Write succeeded"
+    (free.kusd-usd.freeze-account (read-string "user2"))
+  )
+
+  (expect "Validate if account is frozen"
+    true
+    (at "frozen" (free.kusd-usd.kusd-account-details (read-string "user2")))
+  )
+
+  (expect "Freeze events"
+    [{"name": "free.kusd-usd.ACCOUNT_FROZEN", "params": ["k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}]
+    (map (remove "module-hash") (env-events true)))
+
+  (env-sigs [
+    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
+    ,'caps: [(free.kusd-usd.TRANSFER "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7" "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" 10.0)]
+    }
+  ])
+
+  (expect-failure "Fail to transfer from frozen account"
+    "only active or new accounts may be debited"
+    (free.kusd-usd.transfer (read-string "user2") (read-string "user1") 10.0))
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7" 10.0)]
+    }
+  ])
+
+  (expect "Transferring to a frozen account should succeed"
+    "Write succeeded"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user2") 10.0))
+
+(commit-tx)
+
+; ## Unfreeze Account
+(begin-tx "Unfreeze account")
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+  })
+
+  (expect "Validate that user2 is frozen"
+    true
+    (at "frozen" (free.kusd-usd.kusd-account-details (read-string "user2")))
+  )
+
+  (expect-failure "Unfreeze user2 account without sig fails"
+    "Keyset failure"
+    (free.kusd-usd.unfreeze-account (read-string "user2")))
+
+  (env-sigs [
+    { 'key: 'freeze-manager
+    ,'caps: [(free.kusd-usd.FREEZE_MANAGER)]
+    }
+  ])
+
+  (expect "Unfreeze user2 account"
+    "Write succeeded"
+    (free.kusd-usd.unfreeze-account (read-string "user2"))
+  )
+
+  (expect "Validate that user2 is not frozen"
+    false
+    (at "frozen" (free.kusd-usd.kusd-account-details (read-string "user2")))
+  )
+
+  (expect "Unfreeze events"
+    [{"name": "free.kusd-usd.ACCOUNT_UNFROZEN", "params": ["k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}]
+    (map (remove "module-hash") (env-events true)))
+
+  (env-sigs [
+    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user2") (read-string "user1") 10.0)]
+    }
+  ])
+
+  (expect "Transfer from unfrozen account succeeds"
+    "Write succeeded"
+    (free.kusd-usd.transfer (read-string "user2") (read-string "user1") 10.0)
+  )
+
+  (expect "Check balance"
+    20.0
+    (free.kusd-usd.get-balance (read-string "user2"))
+  )
+
+  (env-sigs [
+    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
+    ,'caps: [(free.kusd-usd.TRANSFER (read-string "user1") (read-string "user2") 10.0)]
+    }
+  ])
+
+  (expect "Transfer to unfrozen account succeeds"
+    "Write succeeded"
+    (free.kusd-usd.transfer (read-string "user1") (read-string "user2") 10.0)
+  )
+
+  (expect "Check balance"
+    30.0
+    (free.kusd-usd.get-balance (read-string "user2"))
+  )
+
+(commit-tx)
