@@ -749,6 +749,7 @@ This way the cdp would handle single vaults instead of going over all vaults
 - and simpeler code!
 
 ---
+(read my comments in cdp.pact about minting / burning,  pact gods needed)
 
 It could be a idea idea to offload the actual kUSD minting / burning calls to a trusted backend service, that does the mint/burn calls
 (Oversimplified chart)
@@ -783,4 +784,4 @@ sequenceDiagram
 - Validate user requests
 - Call .mint / .burn on-chain
 
-But this can propbably be done without a backend (burn/mint)
+But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
