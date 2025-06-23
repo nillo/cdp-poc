@@ -264,9 +264,13 @@
             ; but just like teh original project, we need some kind of interface with a mod-ref lets name it kusd-ref
             ; so we can mint and burn kUSD, and transfer it to the fee pool account
 
-             ; so this contract should own kusd.?
+            ; so this contract should own kusd.?
             ; this gives me marmalade vibes :D i don't know how to handle this. 
-            ; maybe amir/ heekyun do? 
+
+            ; Another idea would be, to totally ,forget about the mint and burn, we just pre-mint and store everything in a independent escow
+            ; and make this contract owner of that escrow, and instead of mint and burn we do transfer. (this would be easier, and we could just escrow capabilities c: accounts)
+            
+            ; maybe amir/ heekyun / emily what are your thoughts.
 
             (free.kusd-usd.mint callerAccount borrowAmount) 
             (free.kusd-usd.mint (fee-pool-account) calculatedFeeAmount)
