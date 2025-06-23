@@ -3,10 +3,10 @@ Kudos Protocol is a permissionless (well it still has governance for now :P), fu
 # Kudos Protocol
 
 ## Concepts:
-** CDP **
+**CDP**
 The CDP module lets users lock KDA collateral in individual “vessels” and borrow kUSD up to a maximum Loan-to-Value ratio, enforcing collateralization via the borrow-kusd and deposit-collateral functions. If a vault’s collateral ratio falls below the protocol minimum, anyone can call liquidate-vault, which uses the Stability Pool’s kUSD to pay off debt and seizes collateral for redistribution.
 
-** STABILITY POOL **
+**STABILITY POOL**
 The Stability Pool holds users’ kUSD deposits and automatically absorbs the debt of undercollateralized CDP vaults during liquidations, exchanging pooled kUSD for KDA collateral. Depositors earn KDA yield proportional to their share of the pool each time a liquidation occurs, aligning incentives to keep the system solvent.
 
 # Files:
