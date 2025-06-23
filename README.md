@@ -786,3 +786,119 @@ sequenceDiagram
 
 But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
 #orNotMintAndBurn 
+
+### After speaking with andy, for safety, a escrow would be more safe ( with hacks atleast you dont have access to mint or / and only the fund in escrow can be drained)
+It would look something like this:
+```mermaid
+classDiagram
+class StabilityPool {
+    +REDEEM_FEE_PCT: decimal = 0.005
+    +totalDeposits: decimal
+    +cumulativeGain: decimal
+    +init-pool()
+    +deposit-kusd(amount)
+    +withdraw(amount)
+    +absorb-debt(kdaAmount)
+    +pool-key() string
+    +pool-principal() string
+}
+
+class CDP {
+    +MIN_CR: decimal = 110.0
+    +BORROW_FEE_PCT: decimal = 0.005
+    +REFUND_DAYS: decimal = 182.0
+    +LIQUIDATION_REWARD: decimal = 0.005
+    +REDEMPTION_FEE: decimal = 0.005
+    +open-vessel()
+    +deposit-collateral(amount)
+    +withdraw-collateral(amount)
+    +borrow-kusd(amount)
+    +repay-kusd(amount)
+    +redeem-kusd(amount) 
+    +liquidate-vessel(targetVault)
+    +debt-ahead(referenceVault)
+    +emit-vessel-event(vaultKey, owner, collateral, debt, status)
+    +VAULT_STATE_CHANGED (event)
+}
+
+class KUSD {
+    +MINIMUM_PRECISION: int = 12
+    +balance: decimal
+    +guard: guard
+    +frozen: bool
+    +create-account(account, guard)
+    +transfer(sender, receiver, amount)
+    +freeze-account(account)
+    +unfreeze-account(account)
+}
+
+class Oracle {
+    +price: decimal
+    +timestamp: time
+    +fetch-kda-price()
+}
+
+class Coin {
+    +MINIMUM_PRECISION: int = 12
+    +balance: decimal
+    +guard: guard
+    +transfer(sender, receiver, amount)
+}
+
+class Escrow {
+    +ESCROW_VAULT: string
+    +lock-collateral(source, amount)
+    +unlock-collateral(destination, amount)
+    +get-escrow-balance() decimal
+}
+
+class Indexer {
+    +vessels: [Vessel]
+    +sortByLTV()
+    +updateFromEvent(event)
+}
+
+class Vessel {
+    +key: string
+    +owner: string
+    +collateral: decimal
+    +debt: decimal
+    +ltv: decimal
+    +status: string
+}
+
+StabilityPool --> KUSD : Holds kUSD deposits
+StabilityPool <-- Coin : Receives KDA from liquidations
+CDP --> KUSD : Processes kUSD debt
+CDP --> Coin : Secures KDA collateral
+CDP --> Escrow : Controls kUSD circulation
+CDP <-- Oracle : Gets price feeds
+CDP --> StabilityPool : Triggers liquidations
+CDP --> Indexer : Publishes vessel events
+Indexer --> CDP : Provides sorted vessels
+KUSD --|> FungibleV2 : Standards compliance
+KUSD --|> FungibleXChainV1 : Cross-chain support
+Indexer o-- Vessel : Maintains vessel data
+Escrow --> KUSD : Custodies kUSD reserves
+
+note for CDP "Core lending logic:\n- Debt management\n- Collateral security\n- Event emission"
+note for Indexer "Off-chain service:\n1. Listens to CDP events\n2. Maintains LTV-sorted vessels\n3. Enables efficient redemption"
+note for StabilityPool "Absorbs liquidation losses\nDistributes KDA gains"
+note for Escrow "kUSD supply controller:\n- Lock: Remove from circulation\n- Unlock: Release to users"
+```
+
+flow:
+```mermaid
+sequenceDiagram
+    participant CDP
+    participant Escrow
+    participant KUSD
+    
+    CDP->>Escrow: unlock-collateral(user, amount)
+    Escrow->>KUSD: transfer(ESCROW_VAULT, user, amount)
+    Note right of KUSD: kUSD enters circulation
+    
+    CDP->>Escrow: lock-collateral(user, amount)
+    Escrow->>KUSD: transfer(user, ESCROW_VAULT, amount)
+    Note right of KUSD: kUSD removed from circulation
+```
