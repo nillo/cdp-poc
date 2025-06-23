@@ -785,3 +785,4 @@ sequenceDiagram
 - Call .mint / .burn on-chain
 
 But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
+#orNotMintAndBurn 
