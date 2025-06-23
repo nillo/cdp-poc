@@ -155,6 +155,9 @@
     @doc "Get principal for vault"
     (create-principal (create-user-guard (enforce-reserve-vault vaultKey))))
 
+; mock oracle, should probably use price-feed, i didnt look at the on chain free.dai whatever contract. (don't even know if it is deployed)
+; I also don't know what service updates to it? i know its dai or someothing, but where is it running?
+
   (defun fetch-kda-price:decimal ()
     @doc "Fetch valid KDA/USD price from oracle with freshness check"
     (with-capability (READ_ORACLE)
