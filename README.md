@@ -781,3 +781,5 @@ sequenceDiagram
 - Expose its own authenticated GraphQL/REST endpoint
 - Validate user requests
 - Call .mint / .burn on-chain
+
+But this can propbably be done without a backend (burn/mint)
