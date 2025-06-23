@@ -1,6 +1,6 @@
+# Kudos Protocol
 Kudos Protocol is a permissionless (well it still has governance for now :P), fully on-chain lending platform on Kadena that lets users lock up KDA as collateral to mint the dollar-pegged stablecoin kUSD, repay loans with time-based fee refunds, and optionally earn KDA yield via a Stability Pool.
 
-# Kudos Protocol
 
 ## Concepts:
 **CDP**
