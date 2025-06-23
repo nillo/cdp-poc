@@ -264,8 +264,9 @@
             ; but just like teh original project, we need some kind of interface with a mod-ref lets name it kusd-ref
             ; so we can mint and burn kUSD, and transfer it to the fee pool account
 
+             ; so this contract should own kusd.?
             ; this gives me marmalade vibes :D i don't know how to handle this. 
-            ; maybe amir/ heekyun do?
+            ; maybe amir/ heekyun do? 
 
             (free.kusd-usd.mint callerAccount borrowAmount) 
             (free.kusd-usd.mint (fee-pool-account) calculatedFeeAmount)
