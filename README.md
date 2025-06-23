@@ -749,7 +749,7 @@ This way the cdp would handle single vaults instead of going over all vaults
 - and simpeler code!
 
 ---
-(read my comments in cdp.pact about minting / burning,  pact gods needed)
+(read my comments in cdp.pact about minting / burning,  pact gods needed) -> maybe we shouldnt mint at all and just do transfer from a escrow
 
 It could be a idea idea to offload the actual kUSD minting / burning calls to a trusted backend service, that does the mint/burn calls
 (Oversimplified chart)
