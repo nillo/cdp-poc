@@ -237,18 +237,19 @@
             (enforce (>= newCollateralRatio (get-config "MIN_CR" DEFAULT_MINIMUM_COLLATERAL_RATIO))
                     "Collateral ratio too low")
 
-            ; We cant call mind on the kusd-usd contract - (iknow)
-
-            ; but just like teh original project, we need some kind of interface with a mod-ref lets name it kusd-ref
-            ; so we can mint and burn kUSD, and transfer it to the fee pool account
-
-            ; so this contract should own kusd.?
-            ; this gives me marmalade vibes :D i don't know how to handle this. 
+            ; since we don't want modrefs?
 
             ; Another idea would be, to totally ,forget about the mint and burn, we just pre-mint and store everything in a independent escow
             ; and make this contract owner of that escrow, and instead of mint and burn we do transfer. (this would be easier, and we could just escrow capabilities c: accounts)
             
-            ; maybe amir/ heekyun / emily what are your thoughts.
+            ; based on new input: if i understand emily's implementation of kusd correctly, 
+            ; (defun add-contract-to-whitelist:string (contract:string whitelist-ref:module{whitelisted-module-iface}))
+            ; it would mean the contract should conform the interface (whitelisted-module-iface) and we won't use capabilities?
+            ; that contract can just call mint/burn from anywhere since we are owner of that contract? that  the call to burn above would work.
+            ; but i donno i just uread the: https://www.notion.so/kadenateam/Kudos-Rewrite-Architecture-Initial-Draft-21be868b687880c48621d70caed4df70?showMoveTo=true&saveParent=true link
+            ; That would mean we dont nee BORROW_MGR, REPAY_MGR, REDEEM_MGR, capabilities anymore.
+
+            
 
             (free.kusd-usd.mint callerAccount borrowAmount) 
             (free.kusd-usd.mint (fee-pool-account) calculatedFeeAmount)
@@ -554,13 +555,6 @@
               (get-vault-principal (free.stability-pool.pool-key))
               vesselDebtAmount)
 
-
-            ; based on new input: if i understand emily's implementation of kusd correctly, 
-            ; (defun add-contract-to-whitelist:string (contract:string whitelist-ref:module{whitelisted-module-iface}))
-            ; it would mean the contract should conform the interface (whitelisted-module-iface) and we won't use capabilities?
-            ; that contract can just call mint/burn from anywhere since we are owner of that contract? that  the call to burn above would work.
-            ; but i donno i just uread the: https://www.notion.so/kadenateam/Kudos-Rewrite-Architecture-Initial-Draft-21be868b687880c48621d70caed4df70?showMoveTo=true&saveParent=true link
-            ; That would mean we dont nee BORROW_MGR, REPAY_MGR, REDEEM_MGR, capabilities anymore.
 
             ; Pay the liquidator their KDA reward
             (coin.transfer
