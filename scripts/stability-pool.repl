@@ -62,19 +62,18 @@
   (free.stability-pool.init-pool))
 (commit-tx)
 
-; ## Deposit & Withdraw Tests
-(begin-tx "Deposit & Withdraw")
+; ## Deposit Only Test
+(begin-tx "Deposit Test")
+  (env-data {
+    "alice-guard": {"keys": ["alice"], "pred": "keys-all"}
+  })
   (let ((alice-principal (create-principal (read-keyset "alice-guard")))
         (pool-principal  (free.stability-pool.pool-principal "main")))
-
-    ; Set tx sender
     (env-data { 'sender: alice-principal })
-
-    ; Deposit: Alice approves and transfers 50 kUSD
-    (env-sigs [{'key: "alice", 'caps: [
-                  (free.stability-pool.DEPOSIT-KUSD)
-                  (free.kusd-usd.TRANSFER alice-principal pool-principal 50.0)
-                ]}])
+    (env-sigs
+      [{'key: "alice", 'caps: [
+          (free.kusd-usd.TRANSFER alice-principal pool-principal 50.0)
+        ]}])
     (expect-failure "deposit zero"     "Deposit amount must be > 0"
       (free.stability-pool.deposit-kusd 0.0))
     (expect-failure "deposit negative" "Deposit amount must be > 0"
@@ -84,21 +83,45 @@
       (at 'totalDeposits (free.stability-pool.get-pool-state "main")))
     (expect "alice claim" 50.0
       (at 'deposit (free.stability-pool.get-claim alice-principal)))
-    ; Withdraw: Alice withdraws 20 kUSD
-    ; **pool-admin must grant BOTH POOL-RESERVE and the internal kUSD TRANSFER cap**
-    (env-sigs [
-      { 'key: "alice",      'caps: [(free.stability-pool.WITHDRAW)] }
-      { 'key: "pool-admin", 'caps: [
-          (free.stability-pool.POOL-RESERVE "main")
-          (free.kusd-usd.TRANSFER pool-principal alice-principal 20.0)
-        ] }
-    ])
+  )
+(commit-tx)
+
+; ## Withdraw Only Test
+; ## Withdraw Only Test
+(begin-tx "Withdraw Test")
+  (env-data {
+    "alice-guard":       {"keys": ["alice"],       "pred": "keys-all"},
+    "pool-admin-keyset": {"keys": ["pool-admin"],  "pred": "keys-all"}
+  })
+  (let ((alice-principal (create-principal (read-keyset "alice-guard")))
+        (pool-principal  (free.stability-pool.pool-principal "main")))
+    ; Set the sender explicitly
+    (env-data { 'sender: alice-principal })
+
+    ; **Set transaction signatures and capabilities:**
+    ; Alice needs the WITHDRAW-KUSD cap
+    ; Pool-admin needs both POOL-RESERVE and kUSD TRANSFER cap
+    (env-sigs
+      [
+        { 'key: "alice", 'caps: [
+
+          ]
+        }
+        { 'key: "pool-admin", 'caps: [
+            (free.stability-pool.POOL-RESERVE "main")
+            ; (free.kusd-usd.TRANSFER pool-principal alice-principal 20.0)
+          ]
+        }
+      ])
+
+    ; Run the tests
     (expect-failure "withdraw zero"     "Withdraw amount must be > 0"
       (free.stability-pool.withdraw 0.0))
     (expect-failure "withdraw negative" "Withdraw amount must be > 0"
       (free.stability-pool.withdraw -5.0))
     (expect-failure "overwithdraw"      "Exceeds deposit"
       (free.stability-pool.withdraw 100.0))
+    
     (free.stability-pool.withdraw 20.0)
     (expect "alice deposit" 30.0
       (at 'deposit (free.stability-pool.get-claim alice-principal)))

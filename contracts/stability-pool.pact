@@ -5,18 +5,11 @@
 (module stability-pool 'pool-admin-keyset
   @doc "Stability Pool: hold kUSD deposits to absorb vault liquidations by exchanging pooled kUSD for KDA collateral; depositors earn KDA yield proportional to their pool share and can withdraw or redeem without impacting core CDP operations"
 
-
   ;  -- Capabilities -- 
-  
   (defcap GOVERNANCE () 
     (enforce-keyset 'pool-admin-keyset))
+
   (defcap POOL-RESERVE (poolKey:string) true)
-  (defcap READ-ORACLE () 
-    (enforce-keyset 'oracle-keyset))
-  (defcap DEPOSIT-KUSD () @event true)
-  (defcap ABSORB-DEBT (kdaAmount:decimal) @event true)
-  (defcap WITHDRAW () @event true)
-  (defcap REDEEM-KUSD (amount:decimal) @event true)
 
   (defcap WITHDRAW_EXECUTED (user:string amount:decimal kda:decimal)
     @event
@@ -41,7 +34,6 @@
 
   (defconst REDEEM-FEE-PCT 0.005)
 
-
   ; --  Pool Helpers --
   (defun pool-key:string ()
     "Returns the identifier key for the main stability pool"
@@ -59,7 +51,6 @@
     (create-principal (create-pool-guard key)))
 
   ; -- Reads --
-
   (defun get-pool-state (poolKey:string)
     @doc "Return an object with totalDeposits and cumulativeGain from the pool"
     (with-read pool-state poolKey
@@ -76,9 +67,8 @@
       { "deposit":       deposit
       , "gainSnapshot":  gainSnapshot }))
 
-  ; ----------------------------------------------------------------------
-  ; Initialization
-  ; ----------------------------------------------------------------------
+  
+  ; -- Initialization -- 
   (defun init-pool:string ()
     @doc "Governance: initialize the stability pool state and create its account"
     (with-capability (GOVERNANCE)
@@ -104,33 +94,36 @@
   (defun deposit-kusd (depositAmount:decimal)
     @doc "Deposit kUSD into the stability pool"
     (let* ((depositorAccount (read-msg 'sender))
-           (poolAccount      (pool-principal (pool-key))))
+          (poolAccount      (pool-principal (pool-key))))
       (enforce (> depositAmount 0.0) "Deposit amount must be > 0")
-      (with-capability (DEPOSIT-KUSD)
-        (with-capability (POOL-RESERVE (pool-key))
-        ; Transfer kUSD into the pool
-        (free.kusd-usd.transfer depositorAccount poolAccount depositAmount))
-        (with-read pool-state (pool-key)
-          { "totalDeposits":=    existingTotalDeposits
-          , "cumulativeGain":=   poolCumulativeGain }
-          (update pool-state (pool-key)
-            { "totalDeposits": (+ existingTotalDeposits depositAmount) })
-          ; Now record or update this depositor’s claim
-          (with-default-read claims depositorAccount
-            { "deposit":       0.0
-            , "gainSnapshot":  poolCumulativeGain }
-            { "deposit":= priorDeposit
-            , "gainSnapshot":= _ }
-            (if (<= priorDeposit 0.0)
-              ; first-time deposit
-              (insert claims depositorAccount
-                { "deposit":       depositAmount
-                , "gainSnapshot":  poolCumulativeGain })
-              ; top-up existing deposit
-              (update claims depositorAccount
-                { "deposit":       (+ priorDeposit depositAmount)
-                , "gainSnapshot":  poolCumulativeGain })))))
-      "Deposit succeeded"))
+      ; Transfer kUSD into the pool
+      (free.kusd-usd.transfer depositorAccount poolAccount depositAmount)
+
+      (with-read pool-state (pool-key)
+        { "totalDeposits":=    existingTotalDeposits
+        , "cumulativeGain":=   poolCumulativeGain }
+        
+        (update pool-state (pool-key)
+          { "totalDeposits": (+ existingTotalDeposits depositAmount) })
+
+        (with-default-read claims depositorAccount
+          { "deposit":       0.0
+          , "gainSnapshot":  poolCumulativeGain }
+          { "deposit":= priorDeposit
+          , "gainSnapshot":= _ }
+
+          (if (<= priorDeposit 0.0)
+            ; first-time deposit
+            (insert claims depositorAccount
+              { "deposit":       depositAmount
+              , "gainSnapshot":  poolCumulativeGain })
+
+            ; top-up existing deposit
+            (update claims depositorAccount
+              { "deposit":       (+ priorDeposit depositAmount)
+              , "gainSnapshot":  poolCumulativeGain })))))
+      "Deposit succeeded")
+
 
 
 ; When a depositor withdraws kUSD from the Stability Pool, the contract:
@@ -141,57 +134,64 @@
 ; 5. If any KDA yield is due, transfers it to the user.
 (defun withdraw:string (withdrawAmount:decimal)
   @doc "Withdraw deposited kUSD and any accumulated KDA gains"
-  (let ((withdrawingAccount (read-msg 'sender))
-        (poolAccount         (pool-principal (pool-key))))
+  (let ((user (read-msg 'sender))
+        (poolAccount (pool-principal (pool-key))))
+    
     (enforce (> withdrawAmount 0.0) "Withdraw amount must be > 0")
 
-    ; Load the depositor’s record: how much they put in, and their last gain snapshot
-    (with-read claims withdrawingAccount
-      { "deposit":=      userDeposit
-      , "gainSnapshot":= userGainSnapshot }
+      ; Load the depositor’s record: how much they put in, and their last gain snapshot
+      (with-read claims user
+        { "deposit":=      userDeposit
+        , "gainSnapshot":= userGainSnapshot }
 
-      (enforce (>= userDeposit withdrawAmount) "Exceeds deposit")
-      (with-capability (WITHDRAW)
-        (with-capability (POOL-RESERVE (pool-key))
-          ; Total deposits and cumulative gain per kUSD
-          (with-read pool-state (pool-key)
-            { "totalDeposits":=   currentTotalDeposits
-            , "cumulativeGain":=  currentCumulativeGain }
-            ;How much KDA the user earned since their snapshot
-            (let* (
-                   ; Gain per kUSD = new total gain minus the snapshot when they last deposited
-                   (earnedGainPerKusd (- currentCumulativeGain userGainSnapshot))
+        (enforce (>= userDeposit withdrawAmount) "Exceeds deposit")
 
-                   ; Total KDA owed = gain per kUSD × amount withdrawing
-                   (kdaToSend          (* earnedGainPerKusd withdrawAmount))
-                   
-                   ; Update state values for kUSD
-                   (newUserDeposit     (- userDeposit withdrawAmount))
-                   (newTotalDeposits   (- currentTotalDeposits withdrawAmount))
+        ; Calculates the KDA yield earned since their last snapshot
+        (with-read pool-state (pool-key)
+          { "totalDeposits":=   currentTotalDeposits
+          , "cumulativeGain":=  currentCumulativeGain }
 
-                   ; Check the pool has enough kUSD to give back
-                   (poolUsdBalance     (free.kusd-usd.get-balance poolAccount)))
+          (let* (
+                 ; Gain per kUSD = new cumulative minus snapshot
+                 (earnedGainPerKusd (- currentCumulativeGain userGainSnapshot))
 
-              (enforce (>= poolUsdBalance withdrawAmount) "Insufficient pool kUSD")
-              ; Shrink pool’s total and the user’s deposit
-              (update pool-state (pool-key)
-                      { "totalDeposits": newTotalDeposits })
-              (update claims withdrawingAccount
-                      { "deposit":      newUserDeposit
-                      , "gainSnapshot": currentCumulativeGain })
+                 ; Total KDA owed = gain per kUSD * amount withdrawing
+                 (kdaToSend          (* earnedGainPerKusd withdrawAmount))
 
-              (free.kusd-usd.transfer poolAccount withdrawingAccount withdrawAmount)
-              ; If there’s earned KDA, send it and emit an event
-              (if (> kdaToSend 0.0)
-                  (do
-                    (coin.transfer poolAccount withdrawingAccount kdaToSend)
-                    (emit-event (WITHDRAW_EXECUTED withdrawingAccount withdrawAmount kdaToSend))
-                    "Withdraw completed")
-                  ;If no KDA earned, just emit an event with zero gain
-                  (do
-                    (emit-event (WITHDRAW_EXECUTED withdrawingAccount withdrawAmount 0.0))
-                    "Withdraw completed")))))))))
+                 (newUserDeposit     (- userDeposit withdrawAmount))
+                 (newTotalDeposits   (- currentTotalDeposits withdrawAmount))
 
+                 ; Check pool balance before transferring kUSD
+                 (poolUsdBalance     (free.kusd-usd.get-balance poolAccount)))
+
+            ; Ensure the pool can return the kUSD
+            (enforce (>= poolUsdBalance withdrawAmount) "Insufficient pool kUSD")
+
+            ; Update the pool's totalDeposits
+            (update pool-state (pool-key)
+              { "totalDeposits": newTotalDeposits })
+
+            ; Update user’s claim and snapshot
+            (update claims user
+              { "deposit":      newUserDeposit
+              , "gainSnapshot": currentCumulativeGain })
+
+            (with-capability (POOL-RESERVE (pool-key))
+              (install-capability (free.kusd-usd.TRANSFER poolAccount user withdrawAmount))
+              (free.kusd-usd.transfer poolAccount user withdrawAmount)
+            )
+
+            ; If any KDA yield is due, transfer it to the user and emit event
+            (if (> kdaToSend 0.0)
+              (do
+                (install-capability (coin.TRANSFER poolAccount user withdrawAmount))
+                (coin.transfer poolAccount user kdaToSend)
+                (emit-event (WITHDRAW_EXECUTED user withdrawAmount kdaToSend))
+                "Withdraw completed with KDA")
+              ; If no KDA earned, emit a 0 gain event
+              (do
+                (emit-event (WITHDRAW_EXECUTED user withdrawAmount 0.0))
+                "Withdraw completed")))))))
 
 
 ; When a vault is liquidated, the Stability Pool absorbs its collateral by:
@@ -201,8 +201,6 @@
 ; 4. Updating the pool’s cumulativeGain so future withdrawals include this new yield.
   (defun absorb-debt:string (kdaAmount:decimal)
     @doc "Absorb collateral from liquidated vessels into the pool"
-    (with-capability (ABSORB-DEBT kdaAmount)
-     (with-capability (POOL-RESERVE (pool-key))
       (with-read pool-state (pool-key)
         { "totalDeposits":= totalDeposits
         , "cumulativeGain":= cumulativeGain }
@@ -213,7 +211,7 @@
           ; ensuring we never overflow our decimal precision
           (enforce (< gainIncrement (^ 10.0 (dec 30))) "Gain overflow"); 
           (update pool-state (pool-key)
-            { "cumulativeGain": (+ cumulativeGain gainIncrement) })))))
+            { "cumulativeGain": (+ cumulativeGain gainIncrement) })))
     "Debt absorbed")
 
 )

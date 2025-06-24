@@ -9,7 +9,8 @@
   (defcap GOVERNANCE ()
     @doc "Administrative capability enforced by cdp-admin-keyset"
     (enforce-keyset 'cdp-admin-keyset)
-    (install-capability (FEE_POOL)))
+    (install-capability (FEE_POOL))
+  )
 
   (defcap FEE_POOL ()
     @doc "Capability guarding the fee pool principal"
@@ -67,24 +68,8 @@
 
 
   ; -- Operation Capabilities --
-  (defcap READ_ORACLE ()
-    @doc "Capability to read oracle price"
-    (enforce-keyset 'oracle-keyset))
-
   (defcap RESERVE_VAULT (vaultKey:string)
     @doc "Capability guarding vault principal"
-    true)
-
-  (defcap OPEN_VAULT (owner:string)
-    @doc "Capability to open a vault"
-    true)
-
-  (defcap DEPOSIT_COLLATERAL (owner:string amount:decimal)
-    @doc "Capability to deposit collateral"
-    true)
-
-  (defcap WITHDRAW_COLLATERAL (owner:string amount:decimal)
-    @doc "Capability to withdraw collateral"
     true)
 
   (defcap BORROW_KUSD (owner:string amount:decimal)
@@ -160,12 +145,11 @@
 
   (defun fetch-kda-price:decimal ()
     @doc "Fetch valid KDA/USD price from oracle with freshness check"
-    (with-capability (READ_ORACLE)
       (with-read oracle-prices "KDA" { "price" := price, "timestamp" := timestamp }
         (let ((currentTime (current-block-time)))
           (enforce (> price 0.0) "Invalid oracle price")
           (enforce (< (- currentTime timestamp) 3600) "Oracle price stale")
-          price))))
+          price)))
 
   (defun calculate-collateral-ratio:decimal (collateralAmount:decimal debtAmount:decimal)
     @doc "Calculate collateral ratio as percentage"
@@ -191,7 +175,6 @@
   (defun open-vault:string ()
     @doc "Create a new vessel with Inactive status"
     (let ((callerAccount (read-msg 'sender)))
-      (with-capability (OPEN_VAULT callerAccount) ; can be removerd will just emit events at the end
         (enforce (not (contains callerAccount (keys vessels))) "Vault already exists")
         (let ((newVaultKey (generate-vault-key callerAccount)))
           (insert vessels callerAccount
@@ -201,13 +184,12 @@
             , "debtAmount": 0.0
             , "lastBorrowTimestamp": (time "1970-01-01T00:00:00Z") ; curr-time
             , "status": "Inactive" })
-          newVaultKey))))
+          newVaultKey)))
 
   ; -- Collateral Operations --
   (defun deposit-collateral:string (depositAmount:decimal)
     @doc "Transfer KDA into an Active or Inactive vessel"
     (let ((callerAccount (read-msg 'sender)))
-      (with-capability (DEPOSIT_COLLATERAL callerAccount depositAmount) ;  can be removerd will just emit events at the end
         (enforce (> depositAmount 0.0) "Deposit amount must be > 0")
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
@@ -217,12 +199,11 @@
           ; i did transfer before, but this is more correct since it did not exist yet, 
           (coin.transfer-create callerAccount (get-vault-principal vaultKey) (create-user-guard (enforce-reserve-vault vaultKey)) depositAmount)
           (update vessels callerAccount { "collateralAmount": (+ currentCollateralAmount depositAmount) })
-          "DepositCompleted"))))
+          "DepositCompleted")))
 
   (defun withdraw-collateral:string (withdrawAmount:decimal)
     @doc "Withdraw KDA from an Active vessel if CR holds"
     (let ((callerAccount (read-msg 'sender)))
-      (with-capability (WITHDRAW_COLLATERAL callerAccount withdrawAmount) ; can be removerd will just emit events at the end
         (enforce (> withdrawAmount 0.0) "Withdraw amount must be > 0")
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
@@ -236,12 +217,12 @@
                     "Collateral ratio too low")
             (coin.transfer (get-vault-principal vaultKey) callerAccount withdrawAmount)
             (update vessels callerAccount { "collateralAmount": newCollateralAmount })
-            "WithdrawCompleted")))))
+            "WithdrawCompleted"))))
 
   (defun borrow-kusd:string (borrowAmount:decimal)
     @doc "Charge one-time fee, mint kUSD, update debt and status"
     (let ((callerAccount (read-msg 'sender)))
-      (with-capability (BORROW_KUSD callerAccount borrowAmount) ; can be removerd will just emit events at the end
+      (with-capability (BORROW_KUSD callerAccount borrowAmount) ; Some capability from the kusd-usd
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
           , "collateralAmount" := currentCollateralAmount
@@ -256,10 +237,7 @@
             (enforce (>= newCollateralRatio (get-config "MIN_CR" DEFAULT_MINIMUM_COLLATERAL_RATIO))
                     "Collateral ratio too low")
 
-            ; shouldnt be able to call this from here so how to solve this
-            ; make a ref in order to use this.
-            ; here is when the tricky parts comes in , we have no rights on the contract, in brale according to jermaine, 
-            ; they do something on the backend for this. 
+            ; We cant call mind on the kusd-usd contract - (iknow)
 
             ; but just like teh original project, we need some kind of interface with a mod-ref lets name it kusd-ref
             ; so we can mint and burn kUSD, and transfer it to the fee pool account
@@ -289,7 +267,7 @@
 (defun repay-kusd:string (repayAmount:decimal)
   @doc "Burn kUSD net of refund, refund prorated fee, update debt and status"
   (let ((callerAccount (read-msg 'sender)))
-    (with-capability (REPAY_KUSD callerAccount repayAmount) ; this capability will probably be used in the kusd-ref
+    (with-capability (REPAY_KUSD callerAccount repayAmount) ; some cap fron the kusd-usd
       (with-read vessels callerAccount
         { "vaultKey"             := vaultKey
         , "debtAmount"           := currentDebtAmount
@@ -324,6 +302,7 @@
                (remainingDebtAfter     (max 0.0 (- currentDebtAmount burnAmountNet)))
                (updatedVesselStatus    (if (= remainingDebtAfter 0.0) "Inactive" "Active")))
           ; burn net amount
+          ; we cant just call this i know.
           (free.kusd-usd.burn callerAccount burnAmountNet) ; need a kusd-ref or something
           ; refund and update in one conditional branch
           ; Do we actually owe the borrower any fee‐refund?
@@ -353,7 +332,7 @@
   (defun redeem-kusd:string (redeemAmount:decimal)
   @doc "Deduct fee, burn net kUSD, distribute fee, redeem KDA"
   (let ((callerAccount (read-msg 'sender)))
-    (with-capability (REDEEM_KUSD callerAccount redeemAmount)
+    (with-capability (REDEEM_KUSD callerAccount redeemAmount); some cap from the kusd-usd
       (enforce (>= redeemAmount 1.0) "Redemption amount must be >= 1 kUSD")
 
       (let* (
@@ -368,6 +347,7 @@
              ; Vault-share of fee (70% of totalFeeCollected) - spec: 70% of fee to vaults
              (vaultsFeeShareTotal         (* totalFeeCollected 0.7)))
 
+        ; we cant just call this i know
         (free.kusd-usd.burn callerAccount netRedeemableAmount)
 
         ; Transfer full fee into fee-pool account - collect full redemption fee 
@@ -453,6 +433,73 @@
 
           "RedeemCompleted")))))
 
+
+      ;  To implement when using indexer
+      ;
+      ;  (defun redeem-kusd(vaultKey:string redeemAmount:decimal)
+      ;    @doc "Redeem specific amount from a single vessel"
+      ;    (let* (
+      ;          ; Fetch the up-to-date KDA/USD price from the oracle
+      ;          (currentPrice (fetch-kda-price))
+
+      ;          ; Load the vault record by its key
+      ;          (vessel (read vessels vaultKey))
+
+      ;          ;Compute the maximum kUSD you can redeem from this vault:
+      ;          ; You cannot exceed the vault’s outstanding debt
+      ;          ; You cannot extract more value than its collateral is worth
+      ;          (maxRedeemable
+      ;            (min
+      ;              ; outstanding debt in kUSD
+      ;              (at 'debtAmount vessel)
+      ;              ; collateral value in kUSD = collateralAmount * price
+      ;              (* (at 'collateralAmount vessel) currentPrice)))
+
+      ;          ;Determine how much to actually redeem:
+      ;          ; the lesser of what the user asked and the vault’s maxRedeemable
+      ;          (amountToRedeem (min redeemAmount maxRedeemable))
+
+      ;          ; Convert that kUSD amount into KDA to send back
+      ;          (kdaToSend (/ amountToRedeem currentPrice)))
+
+      ;      (enforce (> amountToRedeem 0)
+      ;              "Nothing to redeem from this vessel")
+
+      ;      ;Update the vault’s on-chain state:
+      ;      ; - Subtract the redeemed KDA from its collateral
+      ;      ; - Subtract the redeemed kUSD from its debt
+      ;      (update vessels vaultKey {
+      ;        "collateralAmount": (- (at 'collateralAmount vessel) kdaToSend)
+      ;        , "debtAmount":       (- (at 'debtAmount vessel) amountToRedeem)
+      ;      })
+
+      ;      ;Burn the kUSD from the vault’s kUSD balance / (this wont work) <-- see code we need the pact gods
+      ;      (free.kusd-usd.burn 
+      ;        (fee-pool-account)
+      ;        amountToRedeem)
+
+      ;      ;Transfer the corresponding KDA back to the user
+      ;      (coin.transfer
+      ;        (fee-pool-account)
+      ;        (read-msg 'sender)
+      ;        kdaToSend)
+
+      ;      ; Improrant: We emit the event so off-chain indexers/frontends see the new vault state
+      ;      (emit-vessel-event
+      ;        vaultKey
+      ;        (at 'owner vessel)
+      ;        ; new collateral left
+      ;        (- (at 'collateralAmount vessel) kdaToSend)
+      ;        ; new debt left
+      ;        (- (at 'debtAmount vessel) amountToRedeem)
+      ;        ; status = "Redeemed" if fully cleared, else remain "Active"
+      ;        (if (= (- (at 'debtAmount vessel) amountToRedeem) 0.0)
+      ;            "Redeemed" "Active"))
+
+      ;      (format "Redeemed {} kUSD from vessel {}"
+      ;              [amountToRedeem vaultKey])
+      ;  ))
+
 ; When anyone calls liquidate-vault on an under-collateralized vessel, the contract:
 ;  1. Checks oracle freshness.
 ;  2. Computes the vault’s collateral ratio and requires it be below the protocol minimum.
@@ -501,9 +548,19 @@
             ; each remaining token becomes a bit more valuable. That shrinking supply helps keep kUSD trading close to its $1 target,
             ; because demand balances out the reduced supply.
             ; SO this is a crucial step!
+
+            ;; we cant just call this i know
             (free.kusd-usd.burn
               (get-vault-principal (free.stability-pool.pool-key))
               vesselDebtAmount)
+
+
+            ; based on new input: if i understand emily's implementation of kusd correctly, 
+            ; (defun add-contract-to-whitelist:string (contract:string whitelist-ref:module{whitelisted-module-iface}))
+            ; it would mean the contract should conform the interface (whitelisted-module-iface) and we won't use capabilities?
+            ; that contract can just call mint/burn from anywhere since we are owner of that contract? that  the call to burn above would work.
+            ; but i donno i just uread the: https://www.notion.so/kadenateam/Kudos-Rewrite-Architecture-Initial-Draft-21be868b687880c48621d70caed4df70?showMoveTo=true&saveParent=true link
+            ; That would mean we dont nee BORROW_MGR, REPAY_MGR, REDEEM_MGR, capabilities anymore.
 
             ; Pay the liquidator their KDA reward
             (coin.transfer
