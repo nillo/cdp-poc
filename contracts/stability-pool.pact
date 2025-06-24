@@ -184,8 +184,10 @@
             ; If any KDA yield is due, transfer it to the user and emit event
             (if (> kdaToSend 0.0)
               (do
-                (install-capability (coin.TRANSFER poolAccount user withdrawAmount))
-                (coin.transfer poolAccount user kdaToSend)
+                (with-capability (POOL-RESERVE (pool-key))
+                  (install-capability (coin.TRANSFER poolAccount user withdrawAmount))
+                  (coin.transfer poolAccount user kdaToSend)
+                )
                 (emit-event (WITHDRAW_EXECUTED user withdrawAmount kdaToSend))
                 "Withdraw completed with KDA")
               ; If no KDA earned, emit a 0 gain event
