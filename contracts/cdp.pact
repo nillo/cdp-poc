@@ -475,7 +475,7 @@
 
       ;      ;Burn the kUSD from the vault’s kUSD balance / (this wont work) <-- see code we need the pact gods
       ;      (free.kusd-usd.burn 
-      ;        (fee-pool-account)
+      ;        (get-vault-principal vaultKey)
       ;        amountToRedeem)
 
       ;      ;Transfer the corresponding KDA back to the user
