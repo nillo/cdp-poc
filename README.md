@@ -1,8 +1,9 @@
 # Kudos Protocol
+
 Kudos Protocol is a permissionless (well it still has governance for now :P), fully on-chain lending platform on Kadena that lets users lock up KDA as collateral to mint the dollar-pegged stablecoin kUSD, repay loans with time-based fee refunds, and optionally earn KDA yield via a Stability Pool.
 
-
 ## Concepts:
+
 **CDP**
 The CDP module lets users lock KDA collateral in individual “vessels” and borrow kUSD up to a maximum Loan-to-Value ratio, enforcing collateralization via the borrow-kusd and deposit-collateral functions. If a vault’s collateral ratio falls below the protocol minimum, anyone can call liquidate-vault, which uses the Stability Pool’s kUSD to pay off debt and seizes collateral for redistribution.
 
@@ -10,12 +11,12 @@ The CDP module lets users lock KDA collateral in individual “vessels” and bo
 The Stability Pool holds users’ kUSD deposits and automatically absorbs the debt of undercollateralized CDP vaults during liquidations, exchanging pooled kUSD for KDA collateral. Depositors earn KDA yield proportional to their share of the pool each time a liquidation occurs, aligning incentives to keep the system solvent.
 
 # Files:
+
 - kusd.pact (kUSD Stablecoin) borrowed from brale
 - cdp.pact (Collateralized Debt Positions)
 - stability-pool.pact` (Stability Pool)
 
 --
-
 
 ## Meet Emily
 
@@ -409,8 +410,9 @@ Key User Flows Explained:
    - May receive prorated fee refund (up to 182 days)
    - Withdraws collateral after full repayment
 
---- 
-**Issues**: 
+---
+
+**Issues**:
 
 Within thic poc's cdp currently in order to redeem-kusd we have to iterate over all vessels in order to get the LTV, and sort them by their LTV ratio,
 this will exhaust gas. So it would probably be best to offload this process to a indexer.
@@ -428,7 +430,7 @@ this will exhaust gas. So it would probably be best to offload this process to a
   (defun redeem-kusd:string (redeemAmount:decimal)
   @doc "Deduct fee, burn net kUSD, distribute fee, redeem KDA"
   (let ((callerAccount (read-msg 'sender)))
-    (with-capability (REDEEM_KUSD callerAccount redeemAmount)
+    (with-capability (REDEEM_KUSD callerAccount redeemAmount); some cap from the kusd-usd
       (enforce (>= redeemAmount 1.0) "Redemption amount must be >= 1 kUSD")
 
       (let* (
@@ -440,20 +442,21 @@ this will exhaust gas. So it would probably be best to offload this process to a
              (totalFeeCollected           (* redeemAmount configuredRedemptionFeePct))
              ; Net kUSD to burn after fee - spec: netRedeemable = redeemAmount - fee
              (netRedeemableAmount         (- redeemAmount totalFeeCollected))
-             ; vessel-share of fee (70% of totalFeeCollected) - spec: 70% of fee to vaults
+             ; Vault-share of fee (70% of totalFeeCollected) - spec: 70% of fee to vaults
              (vaultsFeeShareTotal         (* totalFeeCollected 0.7)))
 
+        ; we cant just call this i know
         (free.kusd-usd.burn callerAccount netRedeemableAmount)
 
         ; Transfer full fee into fee-pool account - collect full redemption fee
         ; first add the 100% to the fee later, 70% will be distributed to vaults
         (free.kusd-usd.transfer callerAccount (fee-pool-account) totalFeeCollected)
 
-        ; Ensure fee-pool has enough to cover vessel shares - spec: enforce sufficient fee reserve
+        ; Ensure fee-pool has enough to cover vault shares - spec: enforce sufficient fee reserve
         (let ((feePoolBalance (free.kusd-usd.get-balance (fee-pool-account))))
           (enforce (>= feePoolBalance vaultsFeeShareTotal) "Insufficient fee reserve"))
 
-        ; Gather all vessel entries with computed LTV - spec: sort vessels by descending LTV
+        ; Gather all vault entries with computed LTV - spec: sort vessels by descending LTV
         ; this will take up way to much gas, any other way to do this?
 
         ; we get all vessels, and sort them by their LTV ratio
@@ -676,69 +679,69 @@ sequenceDiagram
 This way the cdp would handle single vaults instead of going over all vaults
 
 ```lsp
-(defun redeem-kusd (vaultKey:string redeemAmount:decimal)
-  @doc "Redeem specific amount from a single vessel"
-  (let* (
-         ; Fetch the up-to-date KDA/USD price from the oracle
-         (currentPrice (fetch-kda-price))
+(defun redeem-kusd(vaultKey:string redeemAmount:decimal)
+        @doc "Redeem specific amount from a single vessel"
+        (let* (
+              ; Fetch the up-to-date KDA/USD price from the oracle
+              (currentPrice (fetch-kda-price))
 
-         ; Load the vault record by its key
-         (vessel (read vessels vaultKey))
+              ; Load the vault record by its key
+              (vessel (read vessels vaultKey))
 
-         ;Compute the maximum kUSD you can redeem from this vault:
-         ; You cannot exceed the vault’s outstanding debt
-         ; You cannot extract more value than its collateral is worth
-         (maxRedeemable
-           (min
-             ; outstanding debt in kUSD
-             (at 'debtAmount vessel)
-             ; collateral value in kUSD = collateralAmount * price
-             (* (at 'collateralAmount vessel) currentPrice)))
+              ;Compute the maximum kUSD you can redeem from this vault:
+              ; You cannot exceed the vault’s outstanding debt
+              ; You cannot extract more value than its collateral is worth
+              (maxRedeemable
+                (min
+                  ; outstanding debt in kUSD
+                  (at 'debtAmount vessel)
+                  ; collateral value in kUSD = collateralAmount * price
+                  (* (at 'collateralAmount vessel) currentPrice)))
 
-         ;Determine how much to actually redeem:
-         ; the lesser of what the user asked and the vault’s maxRedeemable
-         (amountToRedeem (min redeemAmount maxRedeemable))
+              ;Determine how much to actually redeem:
+              ; the lesser of what the user asked and the vault’s maxRedeemable
+              (amountToRedeem (min redeemAmount maxRedeemable))
 
-         ; Convert that kUSD amount into KDA to send back
-         (kdaToSend (/ amountToRedeem currentPrice)))
+              ; Convert that kUSD amount into KDA to send back
+              (kdaToSend (/ amountToRedeem currentPrice)))
 
-    (enforce (> amountToRedeem 0)
-             "Nothing to redeem from this vessel")
+          (enforce (> amountToRedeem 0)
+                  "Nothing to redeem from this vessel")
 
-    ;Update the vault’s on-chain state:
-    ; - Subtract the redeemed KDA from its collateral
-    ; - Subtract the redeemed kUSD from its debt
-    (update vessels vaultKey {
-      "collateralAmount": (- (at 'collateralAmount vessel) kdaToSend)
-      , "debtAmount":       (- (at 'debtAmount vessel) amountToRedeem)
-    })
+          ;Update the vault’s on-chain state:
+          ; - Subtract the redeemed KDA from its collateral
+          ; - Subtract the redeemed kUSD from its debt
+          (update vessels vaultKey {
+            "collateralAmount": (- (at 'collateralAmount vessel) kdaToSend)
+            , "debtAmount":       (- (at 'debtAmount vessel) amountToRedeem)
+          })
 
-    ;Burn the kUSD from the vault’s kUSD balance
-    (free.kusd-usd.burn (this wont work) <-- see code we need the pact gods
-      (get-vessel-principal vaultKey)
-      amountToRedeem)
+          ;Burn the kUSD from the vault’s kUSD balance / (this wont work) <-- see code we need the pact gods
+          (free.kusd-usd.burn
+            (fee-pool-account)
+            amountToRedeem)
 
-    ;Transfer the corresponding KDA back to the user
-    (coin.transfer
-      (get-vessel-principal vaultKey)
-      (read-msg 'sender)
-      kdaToSend)
+          ;Transfer the corresponding KDA back to the user
+          (coin.transfer
+            (fee-pool-account)
+            (read-msg 'sender)
+            kdaToSend)
 
-    ; Improrant: We emit the event so off-chain indexers/frontends see the new vault state
-    (emit-vessel-event
-      vaultKey
-      (at 'owner vessel)
-      ; new collateral left
-      (- (at 'collateralAmount vessel) kdaToSend)
-      ; new debt left
-      (- (at 'debtAmount vessel) amountToRedeem)
-      ; status = "Redeemed" if fully cleared, else remain "Active"
-      (if (= (- (at 'debtAmount vessel) amountToRedeem) 0.0)
-          "Redeemed" "Active"))
+          ; Improrant: We emit the event so off-chain indexers/frontends see the new vault state
+          (emit-vessel-event
+            vaultKey
+            (at 'owner vessel)
+            ; new collateral left
+            (- (at 'collateralAmount vessel) kdaToSend)
+            ; new debt left
+            (- (at 'debtAmount vessel) amountToRedeem)
+            ; status = "Redeemed" if fully cleared, else remain "Active"
+            (if (= (- (at 'debtAmount vessel) amountToRedeem) 0.0)
+                "Redeemed" "Active"))
 
-    (format "Redeemed {} kUSD from vessel {}"
-            [amountToRedeem vaultKey])
-))
+          (format "Redeemed {} kUSD from vessel {}"
+                  [amountToRedeem vaultKey])
+      ))
 
 ```
 
@@ -749,7 +752,8 @@ This way the cdp would handle single vaults instead of going over all vaults
 - and simpeler code!
 
 ---
-(read my comments in cdp.pact about minting / burning,  pact gods needed) -> maybe we shouldnt mint at all and just do transfer from a escrow
+
+(read my comments in cdp.pact about minting / burning, pact gods needed) -> maybe we shouldnt mint at all and just do transfer from a escrow
 
 It could be a idea idea to offload the actual kUSD minting / burning calls to a trusted backend service, that does the mint/burn calls
 (Oversimplified chart)
@@ -785,10 +789,12 @@ sequenceDiagram
 - Call .mint / .burn on-chain
 
 But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
-#orNotMintAndBurn 
+#orNotMintAndBurn
 
 ### After speaking with andy, for safety, a escrow would be more safe ( with hacks atleast you dont have access to mint or / and only the fund in escrow can be drained)
+
 It would look something like this:
+
 ```mermaid
 classDiagram
 class StabilityPool {
@@ -814,7 +820,7 @@ class CDP {
     +withdraw-collateral(amount)
     +borrow-kusd(amount)
     +repay-kusd(amount)
-    +redeem-kusd(amount) 
+    +redeem-kusd(amount)
     +liquidate-vessel(targetVault)
     +debt-ahead(referenceVault)
     +emit-vessel-event(vaultKey, owner, collateral, debt, status)
@@ -888,16 +894,17 @@ note for Escrow "kUSD supply controller:\n- Lock: Remove from circulation\n- Unl
 ```
 
 flow:
+
 ```mermaid
 sequenceDiagram
     participant CDP
     participant Escrow
     participant KUSD
-    
+
     CDP->>Escrow: unlock-collateral(user, amount)
     Escrow->>KUSD: transfer(ESCROW_VAULT, user, amount)
     Note right of KUSD: kUSD enters circulation
-    
+
     CDP->>Escrow: lock-collateral(user, amount)
     Escrow->>KUSD: transfer(user, ESCROW_VAULT, amount)
     Note right of KUSD: kUSD removed from circulation
@@ -905,4 +912,3 @@ sequenceDiagram
 
 This way fungible is a entity by itself, where the contract has no control over it, which makes it less tighly coupled.
 (code wasn't update to match these latest changes)
-
