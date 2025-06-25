@@ -60,8 +60,13 @@
    frozen:bool
   )
 
+  (defschema capability-guard-schema
+   guard:guard
+  )
+
   (deftable token-info-table:{token-info-schema})
   (deftable token-table:{token-schema})
+  (deftable capability-guard-table:{guard})
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -198,6 +203,21 @@
         "symbol": TOKEN_SYMBOL,
         "supply": 0.0
       })
+    )
+  )
+  
+  (defun register-cdp-mint-guard:bool (guard:guard)
+    @doc "Enforce that the guard is valid"
+    (with-capability (GOVERNANCE) ;; TODO: should we protect with a different capability? 
+      (insert capability-guard-table DEFAULT_ROW
+        { "guard": guard }
+      )
+    )
+  )
+
+  (defun enforce-cdp:bool ()
+    (with-read capability-guard-table DEFAULT_ROW {'guard:=g}
+      (enforce-guard g)
     )
   )
 
@@ -426,6 +446,7 @@
 
   (defun mint:bool (to:string amount:decimal)
     @doc "Mints amount of token to an account"
+    (enforce-cdp)
     (with-capability (SUPPLY_MANAGER)
       true
     )
@@ -492,6 +513,7 @@
   [
     (create-table token-table)
     (create-table token-info-table)
+    (create-table capability-guard-table)
     (init)
   ]
 )

@@ -27,6 +27,10 @@
   (load "../contracts/kusd.pact")
   (load "../contracts/stability-pool.pact")
   (load "../contracts/cdp.pact")
+  (env-sigs [
+    { 'key: "admin", 'caps: [(free.kusd.GOVERNANCE)] },
+  ])
+  (free.cdp.register-kusd-mint-guard)
   (env-gasmodel 'table)
   (env-gaslimit 150000)
   (expect "Typecheck KUSD" () (typecheck "free.kusd-usd"))

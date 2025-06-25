@@ -4,7 +4,7 @@
 
 (module cdp 'cdp-admin-keyset
   @doc "CDP module: lock KDA collateral in individual vessels to borrow kUSD up to a maximum Loan-to-Value ratio; repay and redeem kUSD with time-based fee refunds and optional Stability Pool yield sharing; liquidate under-collateralized vaults using the Stability Pool’s kUSD backstop"
-
+  
   ; -- Governance and Fee Pool Capabilities --
   (defcap GOVERNANCE ()
     @doc "Administrative capability enforced by cdp-admin-keyset"
@@ -16,6 +16,15 @@
     @doc "Capability guarding the fee pool principal"
     true)
 
+  (defcap KUSD_MINT:bool () 
+    @doc "Capability to mint kUSD"
+    true
+  )
+
+  (defun register-kusd-mint-guard:string ()
+    (free.kusd-usd.register-cdp-mint-guard (create-capability-guard (KUSD_MINT)))
+  )
+    
   (defun fee-pool-account:string ()
     @doc "Returns principal account for protocol fees"
     (create-principal (create-user-guard (require-capability (FEE_POOL)))))
@@ -616,6 +625,6 @@
     (create-table vessels)
     (create-table oracle-prices)
     (init) ])
-
+(register-kusd)
 ; we still have the issue of debt-ahead a,d redeem-kusd, this functions can never execute , it will exhast gas so??
 ; pact gods how do we solve this?
