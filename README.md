@@ -4,11 +4,63 @@ Kudos Protocol is a permissionless (well it still has governance for now :P), fu
 
 ## Concepts:
 
+## Simplification of concepts (Business logic @brittany)
+
+* **CDP (Collateralized Debt Position)**: Think of it as a personal borrowing account where you lock up KDA to borrow kUSD against it, with automatic safeguards to prevent under-collateralization.
+* **Stability Pool**: A collective safety net funded by kUSD holders that steps in to cover bad loans, rewarding participants with KDA.
+* **kUSD**: A dollar-pegged token fully backed by KDA collateral, used as the system’s medium of exchange and loan currency.
+
+---
+
+## CDP (Collateralized Debt Position)
+
+A CDP is essentially your individual vault on Kadena:
+
+1. **Lock collateral** – You deposit KDA into your own “vessel.”
+2. **Borrow** – Based on how much KDA you lock and the current KDA/USD price, you can mint up to a safe percentage in kUSD (e.g. 110% collateralization).
+3. **Maintain health** – If your collateral’s value drops too far (below the required buffer), anyone can liquidate your vault to protect the system.
+4. **Repay & reclaim** – You pay back your kUSD plus a small fee (which can be partially refunded over time), then withdraw your KDA back.
+
+Think of the CDP contract as kUSD’s on-chain “central bank” and risk controller in one. Whenever someone locks up KDA collateral, the CDP automatically checks that they’ve over-collateralized by a safe buffer (say 110 %), and then mints exactly that amount of kUSD into circulation—nothing more, nothing less. If the borrower repays, or if a vault becomes under-collateralized and is liquidated, the CDP is the only module that can burn kUSD to retire it. All fees from borrowing or redemption flow through a dedicated “fee pool” account that CDP also manages. Every mint, burn and fee movement is transparent on chain, and governance keysets control the collateral ratios and fee parameters—just like a board setting interest rates—so you always know kUSD supply is backed, audited, and adjusted under strict, programmable rules.
+> **Key point:** It’s an automated, on-chain credit line secured by your own KDA, with built-in price checks and liquidation rules.
+
+---
+
+## Stability Pool
+
+The Stability Pool is a communal backstop that anyone can join by depositing kUSD:
+
+1. **Deposit kUSD** – You lock your kUSD into the pool.
+2. **Absorb liquidations** – When someone’s CDP falls below the safe ratio, the pool uses its kUSD to cover that debt and in return receives the collateralized KDA.
+3. **Earn yield** – Every time the pool steps in, it distributes the incoming KDA proportionally to all depositors, so you collect KDA rewards.
+4. **Withdraw anytime** – You pull out your original kUSD plus any KDA you’ve earned, without needing to trigger expensive on-chain sorts or redemptions.
+
+> **Key point:** It aligns incentives—depositors share in liquidation gains, and the system has a ready source of kUSD to keep borrowing safe.
+
+---
+
+## kUSD Stablecoin
+
+kUSD is the system’s dollar-pegged token, fully backed by KDA collateral in CDPs:
+
+1. **Minting** – Created when users borrow against their CDPs (minus a small fee).
+2. **Burning** – Destroyed when loans are repaid or the Stability Pool absorbs debt.
+3. **One-to-one value** – Designed to trade as close to \$1 as possible, enforced by the collateralization (CDP) mechanics and open liquidation.
+4. **Use cases** – Acts as the on-chain “cash” for trading, lending, and liquidity provision within Kadena.
+
+> **Key point:** kUSD gives you dollar-style stability while retaining full on-chain transparency and collateral backing.
+
+**In short:**
+
 **CDP**
 The CDP module lets users lock KDA collateral in individual “vessels” and borrow kUSD up to a maximum Loan-to-Value ratio, enforcing collateralization via the borrow-kusd and deposit-collateral functions. If a vault’s collateral ratio falls below the protocol minimum, anyone can call liquidate-vault, which uses the Stability Pool’s kUSD to pay off debt and seizes collateral for redistribution.
 
 **STABILITY POOL**
 The Stability Pool holds users’ kUSD deposits and automatically absorbs the debt of undercollateralized CDP vaults during liquidations, exchanging pooled kUSD for KDA collateral. Depositors earn KDA yield proportional to their share of the pool each time a liquidation occurs, aligning incentives to keep the system solvent.
+
+
+**Important:**
+> Its important to know that, users don’t earn yield simply by opening a CDP. Any fees the CDP collects stay in the protocol’s fee pool or go back to borrowers as refunds—so to actually earn KDA you must deposit your kUSD into the Stability Pool. There, whenever under-collateralized loans are liquidated, the pool uses its kUSD to cover the debt and in return distributes the incoming KDA collateral proportionally to all depositors, giving you real, on-chain yield.
 
 # Files:
 
@@ -791,124 +843,4 @@ sequenceDiagram
 But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
 #orNotMintAndBurn
 
-### After speaking with andy, for safety, a escrow would be more safe ( with hacks atleast you dont have access to mint or / and only the fund in escrow can be drained)
 
-It would look something like this:
-
-```mermaid
-classDiagram
-class StabilityPool {
-    +REDEEM_FEE_PCT: decimal = 0.005
-    +totalDeposits: decimal
-    +cumulativeGain: decimal
-    +init-pool()
-    +deposit-kusd(amount)
-    +withdraw(amount)
-    +absorb-debt(kdaAmount)
-    +pool-key() string
-    +pool-principal() string
-}
-
-class CDP {
-    +MIN_CR: decimal = 110.0
-    +BORROW_FEE_PCT: decimal = 0.005
-    +REFUND_DAYS: decimal = 182.0
-    +LIQUIDATION_REWARD: decimal = 0.005
-    +REDEMPTION_FEE: decimal = 0.005
-    +open-vessel()
-    +deposit-collateral(amount)
-    +withdraw-collateral(amount)
-    +borrow-kusd(amount)
-    +repay-kusd(amount)
-    +redeem-kusd(amount)
-    +liquidate-vessel(targetVault)
-    +debt-ahead(referenceVault)
-    +emit-vessel-event(vaultKey, owner, collateral, debt, status)
-    +VAULT_STATE_CHANGED (event)
-}
-
-class KUSD {
-    +MINIMUM_PRECISION: int = 12
-    +balance: decimal
-    +guard: guard
-    +frozen: bool
-    +create-account(account, guard)
-    +transfer(sender, receiver, amount)
-    +freeze-account(account)
-    +unfreeze-account(account)
-}
-
-class Oracle {
-    +price: decimal
-    +timestamp: time
-    +fetch-kda-price()
-}
-
-class Coin {
-    +MINIMUM_PRECISION: int = 12
-    +balance: decimal
-    +guard: guard
-    +transfer(sender, receiver, amount)
-}
-
-class Escrow {
-    +ESCROW_VAULT: string
-    +lock-collateral(source, amount)
-    +unlock-collateral(destination, amount)
-    +get-escrow-balance() decimal
-}
-
-class Indexer {
-    +vessels: [Vessel]
-    +sortByLTV()
-    +updateFromEvent(event)
-}
-
-class Vessel {
-    +key: string
-    +owner: string
-    +collateral: decimal
-    +debt: decimal
-    +ltv: decimal
-    +status: string
-}
-
-StabilityPool --> KUSD : Holds kUSD deposits
-StabilityPool <-- Coin : Receives KDA from liquidations
-CDP --> KUSD : Processes kUSD debt
-CDP --> Coin : Secures KDA collateral
-CDP --> Escrow : Controls kUSD circulation
-CDP <-- Oracle : Gets price feeds
-CDP --> StabilityPool : Triggers liquidations
-CDP --> Indexer : Publishes vessel events
-Indexer --> CDP : Provides sorted vessels
-KUSD --|> FungibleV2 : Standards compliance
-KUSD --|> FungibleXChainV1 : Cross-chain support
-Indexer o-- Vessel : Maintains vessel data
-Escrow --> KUSD : Custodies kUSD reserves
-
-note for CDP "Core lending logic:\n- Debt management\n- Collateral security\n- Event emission"
-note for Indexer "Off-chain service:\n1. Listens to CDP events\n2. Maintains LTV-sorted vessels\n3. Enables efficient redemption"
-note for StabilityPool "Absorbs liquidation losses\nDistributes KDA gains"
-note for Escrow "kUSD supply controller:\n- Lock: Remove from circulation\n- Unlock: Release to users"
-```
-
-flow:
-
-```mermaid
-sequenceDiagram
-    participant CDP
-    participant Escrow
-    participant KUSD
-
-    CDP->>Escrow: unlock-collateral(user, amount)
-    Escrow->>KUSD: transfer(ESCROW_VAULT, user, amount)
-    Note right of KUSD: kUSD enters circulation
-
-    CDP->>Escrow: lock-collateral(user, amount)
-    Escrow->>KUSD: transfer(user, ESCROW_VAULT, amount)
-    Note right of KUSD: kUSD removed from circulation
-```
-
-This way fungible is a entity by itself, where the contract has no control over it, which makes it less tighly coupled.
-(code wasn't update to match these latest changes)
