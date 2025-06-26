@@ -21,7 +21,7 @@
 
   (describe-module "ns")
 
-  (env-data { 'ns: "free"})
+  (env-data { 'ns: "cdp"})
 
   (define-namespace (read-msg 'ns) (sig-keyset) (sig-keyset))
 (commit-tx)

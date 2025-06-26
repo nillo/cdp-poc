@@ -14,7 +14,6 @@
   ; Keysets
 
   (defconst ADMIN_KS:string "kusd.admin-keyset")
-  (defconst SUPPLY_MANAGER_KS:string "kusd.supply-manager-keyset")
   (defconst FREEZE_MANAGER_KS:string "kusd.freeze-manager-keyset")
 
   ; --------------------------------------------------------------------------
@@ -33,6 +32,8 @@
     "List of all valid Chainweb chain ids")
 
   (defconst DEFAULT_ROW:string "" "Used for tables with one row")
+  (defconst MINT_ROW:string "mint" "Used for tables to store mint guards")
+  (defconst BURN_ROW:string "burn" "Used for tables to store burn guards")
 
   ; --------------------------------------------------------------------------
   ; Schemas and Tables
@@ -60,8 +61,13 @@
    frozen:bool
   )
 
+  (defschema capability-guard-schema
+   guard:guard
+  )
+
   (deftable token-info-table:{token-info-schema})
   (deftable token-table:{token-schema})
+  (deftable capability-guard-table:{capability-guard-schema})
 
   ; --------------------------------------------------------------------------
   ; Capabilities
@@ -69,12 +75,6 @@
   (defcap GOVERNANCE:bool ()
     @doc "Give the admin full access to call and upgrade the module. "
     (enforce-guard ADMIN_KS)
-    true
-  )
-
-  (defcap SUPPLY_MANAGER:bool ()
-    @doc "Capability for managing the mint operation which directly updates the supply"
-    (enforce-guard SUPPLY_MANAGER_KS)
     true
   )
 
@@ -198,6 +198,36 @@
         "symbol": TOKEN_SYMBOL,
         "supply": 0.0
       })
+    )
+  )
+  
+  (defun register-cdp-mint-guard:string (guard:guard)
+    @doc "Register the guard to protect the mint operation."
+    (with-capability (GOVERNANCE) ;; TODO: should we protect with a different capability? 
+      (insert capability-guard-table MINT_ROW
+        { "guard": guard }
+      )
+    )
+  )
+
+  (defun register-cdp-burn-guard:string (guard:guard)
+    @doc "Register the guard to protect the burn operation."
+    (with-capability (GOVERNANCE) ;; TODO: should we protect with a different capability? 
+      (insert capability-guard-table BURN_ROW
+        { "guard": guard }
+      )
+    )
+  )
+
+  (defun enforce-cdp-mint:bool ()
+    (with-read capability-guard-table MINT_ROW {'guard:=g}
+      (enforce-guard g)
+    )
+  )
+
+  (defun enforce-cdp-burn:bool ()
+    (with-read capability-guard-table BURN_ROW {'guard:=g}
+      (enforce-guard g)
     )
   )
 
@@ -426,9 +456,7 @@
 
   (defun mint:bool (to:string amount:decimal)
     @doc "Mints amount of token to an account"
-    (with-capability (SUPPLY_MANAGER)
-      true
-    )
+    (enforce-cdp-mint)
     (with-capability (CREDIT to)
       (credit to (at 'guard (details to)) amount)
       (emit-event (MINT amount to))
@@ -440,7 +468,7 @@
 
   (defun burn:bool (from:string amount:decimal)
     @doc "Burns amount of tokens from an account"
-
+    (enforce-cdp-burn)
     (with-capability (DEBIT from)
       (debit from amount)
       (emit-event (BURN amount from))
@@ -492,6 +520,7 @@
   [
     (create-table token-table)
     (create-table token-info-table)
+    (create-table capability-guard-table)
     (init)
   ]
 )

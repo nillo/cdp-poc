@@ -2,29 +2,48 @@
 
 (namespace (read-msg "ns"))
 
-(module cdp 'cdp-admin-keyset
+(module cdp GOVERNANCE
   @doc "CDP module: lock KDA collateral in individual vessels to borrow kUSD up to a maximum Loan-to-Value ratio; repay and redeem kUSD with time-based fee refunds and optional Stability Pool yield sharing; liquidate under-collateralized vaults using the Stability Pool’s kUSD backstop"
-
+  
   ; -- Governance and Fee Pool Capabilities --
   (defcap GOVERNANCE ()
     @doc "Administrative capability enforced by cdp-admin-keyset"
-    (enforce-keyset 'cdp-admin-keyset)
-    (install-capability (FEE_POOL))
+    (enforce-keyset "cdp.cdp-admin-keyset")
+    (compose-capability (FEE_POOL))
   )
 
   (defcap FEE_POOL ()
     @doc "Capability guarding the fee pool principal"
     true)
 
+  (defcap KUSD_MINT:bool () 
+    @doc "Capability to mint kUSD"
+    true
+  )
+
+  (defcap KUSD_BURN:bool () 
+    @doc "Capability to mint kUSD"
+    true
+  )
+
+  (defun register-kusd-mint-guard:string ()
+    (cdp.kusd-usd.register-cdp-mint-guard (create-capability-guard (KUSD_MINT)))
+  )
+   
+  (defun register-kusd-burn-guard:string ()
+    (cdp.kusd-usd.register-cdp-burn-guard (create-capability-guard (KUSD_BURN)))
+  )
+
   (defun fee-pool-account:string ()
     @doc "Returns principal account for protocol fees"
-    (create-principal (create-user-guard (require-capability (FEE_POOL)))))
+    (create-principal (create-capability-guard (FEE_POOL))))
 
   ; -- Configurable Parameters --
   (defschema configEntry
     @doc "Schema for configuration parameters"
     key:string
     value:decimal)
+
   (deftable config:{configEntry})
 
   (defun get-config:decimal (parameterName:string defaultValue:decimal)
@@ -122,11 +141,17 @@
         (at 0 values) 
         (drop 1 values)))
 
+
+  (defun to-timestamp:integer (input:time)
+    "Computes an Unix timestamp of the input date"
+    (floor (diff-time input (time "1970-01-01T00:00:00Z")))
+  )
+
   (defun current-block-time:time ()
     @doc "Get current block time"
     (at 'block-time (chain-data)))
 
-
+  
   ; jermaine suggested using capability guards, ( i dont know that concept )
   (defun enforce-reserve-vault:bool (vaultKey:string)
     @doc "Enforce vault principal access"
@@ -145,11 +170,10 @@
 
   (defun fetch-kda-price:decimal ()
     @doc "Fetch valid KDA/USD price from oracle with freshness check"
-      (with-read oracle-prices "KDA" { "price" := price, "timestamp" := timestamp }
-        (let ((currentTime (current-block-time)))
-          (enforce (> price 0.0) "Invalid oracle price")
-          (enforce (< (- currentTime timestamp) 3600) "Oracle price stale")
-          price)))
+    (with-read oracle-prices "KDA" { "price" := price, "timestamp" := timestamp }
+        (enforce (> price 0.0) "Invalid oracle price")
+        (enforce (< (- (to-timestamp (current-block-time)) (to-timestamp timestamp)) 3600) "Oracle price stale")
+        price))
 
   (defun calculate-collateral-ratio:decimal (collateralAmount:decimal debtAmount:decimal)
     @doc "Calculate collateral ratio as percentage"
@@ -161,20 +185,20 @@
   (defun init:object ()
     @doc "Initialize CDP tables and set protocol defaults"
     (with-capability (GOVERNANCE)
-      (free.kusd-usd.create-account
+      (cdp.kusd-usd.create-account
         (fee-pool-account)
-        (create-user-guard (require-capability (FEE_POOL))))
-      (insert config "MIN_CR" { "value": DEFAULT_MINIMUM_COLLATERAL_RATIO })
-      (insert config "BORROW_FEE_PCT" { "value": DEFAULT_BORROW_FEE_PERCENTAGE })
-      (insert config "REFUND_DAYS" { "value": DEFAULT_FEE_REFUND_DAYS })
-      (insert config "LIQUIDATION_REWARD" { "value": DEFAULT_LIQUIDATION_REWARD_PERCENTAGE })
-      (insert config "REDEEM_FEE" { "value": DEFAULT_REDEMPTION_FEE_PERCENTAGE })
+        (create-capability-guard (FEE_POOL)))
+      (insert config "MIN_CR" { "key": "MIN_CR", "value": DEFAULT_MINIMUM_COLLATERAL_RATIO  })
+      (insert config "BORROW_FEE_PCT" { "key": "BORROW_FEE_PCT", "value": DEFAULT_BORROW_FEE_PERCENTAGE })
+      (insert config "REFUND_DAYS" { "key": "REFUND_DAYS", "value": DEFAULT_FEE_REFUND_DAYS })
+      (insert config "LIQUIDATION_REWARD" { "key": "LIQUIDATION_REWARD", "value": DEFAULT_LIQUIDATION_REWARD_PERCENTAGE })
+      (insert config "REDEEM_FEE" { "key": "REDEEM_FEE",  "value": DEFAULT_REDEMPTION_FEE_PERCENTAGE })
       { "status": "InitializationComplete" }))
 
   ; -- Vault Operations --
   (defun open-vault:string ()
     @doc "Create a new vessel with Inactive status"
-    (let ((callerAccount (read-msg 'sender)))
+    (let ((callerAccount (read-msg "sender")))
         (enforce (not (contains callerAccount (keys vessels))) "Vault already exists")
         (let ((newVaultKey (generate-vault-key callerAccount)))
           (insert vessels callerAccount
@@ -189,7 +213,7 @@
   ; -- Collateral Operations --
   (defun deposit-collateral:string (depositAmount:decimal)
     @doc "Transfer KDA into an Active or Inactive vessel"
-    (let ((callerAccount (read-msg 'sender)))
+    (let ((callerAccount (read-msg "sender")))
         (enforce (> depositAmount 0.0) "Deposit amount must be > 0")
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
@@ -203,7 +227,7 @@
 
   (defun withdraw-collateral:string (withdrawAmount:decimal)
     @doc "Withdraw KDA from an Active vessel if CR holds"
-    (let ((callerAccount (read-msg 'sender)))
+    (let ((callerAccount (read-msg "sender")))
         (enforce (> withdrawAmount 0.0) "Withdraw amount must be > 0")
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
@@ -221,7 +245,7 @@
 
   (defun borrow-kusd:string (borrowAmount:decimal)
     @doc "Charge one-time fee, mint kUSD, update debt and status"
-    (let ((callerAccount (read-msg 'sender)))
+    (let ((callerAccount (read-msg "sender")))
       (with-capability (BORROW_KUSD callerAccount borrowAmount) ; Some capability from the kusd-usd
         (with-read vessels callerAccount
           { "vaultKey" := vaultKey
@@ -251,8 +275,8 @@
 
             
 
-            (free.kusd-usd.mint callerAccount borrowAmount) 
-            (free.kusd-usd.mint (fee-pool-account) calculatedFeeAmount)
+            (cdp.kusd-usd.mint callerAccount borrowAmount) 
+            (cdp.kusd-usd.mint (fee-pool-account) calculatedFeeAmount)
             (update vessels callerAccount
               { "debtAmount": newDebtTotal
               , "lastBorrowTimestamp": (current-block-time)
@@ -267,7 +291,7 @@
 
 (defun repay-kusd:string (repayAmount:decimal)
   @doc "Burn kUSD net of refund, refund prorated fee, update debt and status"
-  (let ((callerAccount (read-msg 'sender)))
+  (let ((callerAccount (read-msg "sender")))
     (with-capability (REPAY_KUSD callerAccount repayAmount) ; some cap fron the kusd-usd
       (with-read vessels callerAccount
         { "vaultKey"             := vaultKey
@@ -304,13 +328,13 @@
                (updatedVesselStatus    (if (= remainingDebtAfter 0.0) "Inactive" "Active")))
           ; burn net amount
           ; we cant just call this i know.
-          (free.kusd-usd.burn callerAccount burnAmountNet) ; need a kusd-ref or something
+          (cdp.kusd-usd.burn callerAccount burnAmountNet) ; need a kusd-ref or something
           ; refund and update in one conditional branch
           ; Do we actually owe the borrower any fee‐refund?
           (if (> calculatedRefundAmt 0.0)
               (do
                 ; install capability (since its sent from the contract and the contract signs it )
-                (free.kusd-usd.transfer (fee-pool-account) callerAccount calculatedRefundAmt)
+                (cdp.kusd-usd.transfer (fee-pool-account) callerAccount calculatedRefundAmt)
                 (update vessels callerAccount
                   { "debtAmount": remainingDebtAfter
                   , "status":    updatedVesselStatus })
@@ -320,7 +344,6 @@
                   { "debtAmount": remainingDebtAfter
                   , "status":    updatedVesselStatus })
                 "NoRefund")))))))
-
 ; When a kUSD holder calls redeem-kusd, the contract:
 ;  1. Enforces the caller’s REDEEM_KUSD capability and minimum redeem amount.
 ;  2. Computes and collects the redemption fee into the fee-pool, then burns the remaining kUSD.
@@ -331,12 +354,12 @@
 ;     and ensures the entire kUSD amount was redeemed or reverts.
 
   (defun redeem-kusd:string (redeemAmount:decimal)
-  @doc "Deduct fee, burn net kUSD, distribute fee, redeem KDA"
-  (let ((callerAccount (read-msg 'sender)))
-    (with-capability (REDEEM_KUSD callerAccount redeemAmount); some cap from the kusd-usd
-      (enforce (>= redeemAmount 1.0) "Redemption amount must be >= 1 kUSD")
+    @doc "Deduct fee, burn net kUSD, distribute fee, redeem KDA"
+    (let ((callerAccount (read-msg "sender")))
+      (with-capability (REDEEM_KUSD callerAccount redeemAmount); some cap from the kusd-usd
+        (enforce (>= redeemAmount 1.0) "Redemption amount must be >= 1 kUSD")
 
-      (let* (
+        (let* (
              ; Fetch current KDA price for valuation -spec: use oracle price
              (currentKdaPrice             (fetch-kda-price))
              ; Lookup redemption fee pct (e.g. 0.5%) - spec: fixed redemption fee
@@ -348,91 +371,91 @@
              ; Vault-share of fee (70% of totalFeeCollected) - spec: 70% of fee to vaults
              (vaultsFeeShareTotal         (* totalFeeCollected 0.7)))
 
-        ; we cant just call this i know
-        (free.kusd-usd.burn callerAccount netRedeemableAmount)
+          ; we cant just call this i know
+          (cdp.kusd-usd.burn callerAccount netRedeemableAmount)
 
-        ; Transfer full fee into fee-pool account - collect full redemption fee 
-        ; first add the 100% to the fee later, 70% will be distributed to vaults
-        (free.kusd-usd.transfer callerAccount (fee-pool-account) totalFeeCollected)
+          ; Transfer full fee into fee-pool account - collect full redemption fee 
+          ; first add the 100% to the fee later, 70% will be distributed to vaults
+          (cdp.kusd-usd.transfer callerAccount (fee-pool-account) totalFeeCollected)
 
-        ; Ensure fee-pool has enough to cover vault shares - spec: enforce sufficient fee reserve
-        (let ((feePoolBalance (free.kusd-usd.get-balance (fee-pool-account))))
-          (enforce (>= feePoolBalance vaultsFeeShareTotal) "Insufficient fee reserve"))
+          ; Ensure fee-pool has enough to cover vault shares - spec: enforce sufficient fee reserve
+          (let ((feePoolBalance (cdp.kusd-usd.get-balance (fee-pool-account))))
+            (enforce (>= feePoolBalance vaultsFeeShareTotal) "Insufficient fee reserve"))
 
-        ; Gather all vault entries with computed LTV - spec: sort vessels by descending LTV
-        ; this will take up way to much gas, any other way to do this?
+          ; Gather all vault entries with computed LTV - spec: sort vessels by descending LTV
+          ; this will take up way to much gas, any other way to do this?
 
-        ; we get all vessels, and sort them by their LTV ratio
-        (let* ((allVesselEntries
-                 (map (lambda (vaultOwnerKey:string)
-                        (with-read vessels vaultOwnerKey
-                          { "collateralAmount" := vesselCollateral
-                          , "debtAmount"       := vesselDebt
-                          , "status"           := vesselStatus }
-                          ;; compute each vault’s loan-to-value ratio
-                          (let ((loanToValueRatio
-                                 (if (or (= vesselCollateral 0.0) (= vesselDebt 0.0))
-                                     0.0
-                                     (* 100.0 (/ vesselDebt (* vesselCollateral currentKdaPrice))))))
-                            { "vaultOwner":       vaultOwnerKey
-                            , "collateralAmount": vesselCollateral
-                            , "debtAmount":       vesselDebt
-                            , "status":           vesselStatus
-                            , "loanToValueRatio": loanToValueRatio })))
-                      (keys vessels)))
-               (sortedVesselEntries
-                 (sort allVesselEntries
-                       (lambda (firstEntry secondEntry)
-                         (> (at 'loanToValueRatio firstEntry)
-                            (at 'loanToValueRatio secondEntry)))))
+          ; we get all vessels, and sort them by their LTV ratio
+          (let* ((allVesselEntries
+                  (map (lambda (vaultOwnerKey:string)
+                          (with-read vessels vaultOwnerKey
+                            { "collateralAmount" := vesselCollateral
+                            , "debtAmount"       := vesselDebt
+                            , "status"           := vesselStatus }
+                            ;; compute each vault’s loan-to-value ratio
+                            (let ((loanToValueRatio
+                                  (if (or (= vesselCollateral 0.0) (= vesselDebt 0.0))
+                                      0.0
+                                      (* 100.0 (/ vesselDebt (* vesselCollateral currentKdaPrice))))))
+                              { "vaultOwner":       vaultOwnerKey
+                              , "collateralAmount": vesselCollateral
+                              , "debtAmount":       vesselDebt
+                              , "status":           vesselStatus
+                              , "loanToValueRatio": loanToValueRatio })))
+                        (keys vessels)))
+                (sortedVesselEntries
+                  (sort allVesselEntries
+                        (lambda (firstEntry secondEntry)
+                          (> (at 'loanToValueRatio firstEntry)
+                              (at 'loanToValueRatio secondEntry)))))
 
-               (initialAccumulatorMap
-                 { "remainingRedeem":    netRedeemableAmount ; how much kUSD we still have to spend
-                 , "totalKdaRedeemed":  0.0 }) ; how much KDA we redeemed so far starting at 0
+                (initialAccumulatorMap
+                  { "remainingRedeem":    netRedeemableAmount ; how much kUSD we still have to spend
+                  , "totalKdaRedeemed":  0.0 }) ; how much KDA we redeemed so far starting at 0
 
-               ;;Fold over sorted vaults, redeeming up to your kUSD
-               (finalAccumulatorMap
-                 (fold (lambda (accumulatorMap currentVesselEntry)
-                         (let* ((remainingRedeemAmount (at 'remainingRedeem accumulatorMap))
-                                (entryCollateral        (at 'collateralAmount   currentVesselEntry))
-                                (entryDebt              (at 'debtAmount         currentVesselEntry))
-                                (entryAvailableValue    (* entryCollateral currentKdaPrice))
-                                ;; max kUSD value applied to this vault’s debt
-                                (redeemValueForThisVault (min remainingRedeemAmount entryDebt entryAvailableValue))
-                                ;; KDA to return to the user
-                                (kdaToReturnToUser      (min entryCollateral (/ redeemValueForThisVault currentKdaPrice)))
-                                ;; vault’s share of the fee
-                                (vaultFeeShare          (* vaultsFeeShareTotal (/ redeemValueForThisVault redeemAmount)))
-                                (updatedDebtRemaining   (max 0.0 (- entryDebt redeemValueForThisVault)))
-                                 (updatedVesselStatus (cond
-                                    ((= updatedDebtRemaining 0.0) "Redeemed")
-                                    ((< updatedDebtRemaining entryDebt) "PartiallyRedeemed")
-                                    (at "status" currentVesselEntry))))
+                ;;Fold over sorted vaults, redeeming up to your kUSD
+                (finalAccumulatorMap
+                  (fold (lambda (accumulatorMap currentVesselEntry)
+                          (let* ((remainingRedeemAmount (at 'remainingRedeem accumulatorMap))
+                                  (entryCollateral        (at 'collateralAmount   currentVesselEntry))
+                                  (entryDebt              (at 'debtAmount         currentVesselEntry))
+                                  (entryAvailableValue    (* entryCollateral currentKdaPrice))
+                                  ;; max kUSD value applied to this vault’s debt
+                                  (redeemValueForThisVault (min remainingRedeemAmount entryDebt entryAvailableValue))
+                                  ;; KDA to return to the user
+                                  (kdaToReturnToUser      (min entryCollateral (/ redeemValueForThisVault currentKdaPrice)))
+                                  ;; vault’s share of the fee
+                                  (vaultFeeShare          (* vaultsFeeShareTotal (/ redeemValueForThisVault redeemAmount)))
+                                  (updatedDebtRemaining   (max 0.0 (- entryDebt redeemValueForThisVault)))
+                                  (updatedVesselStatus (cond
+                                      ((= updatedDebtRemaining 0.0) "Redeemed")
+                                      ((< updatedDebtRemaining entryDebt) "PartiallyRedeemed")
+                                      (at "status" currentVesselEntry))))
 
-                           ; never redeem more debt or collateral than available
-                           (enforce (<= redeemValueForThisVault entryDebt) "Cannot redeem more than debt")
-                           (enforce (<= kdaToReturnToUser entryCollateral) "Collateral overdraw")
+                            ; never redeem more debt or collateral than available
+                            (enforce (<= redeemValueForThisVault entryDebt) "Cannot redeem more than debt")
+                            (enforce (<= kdaToReturnToUser entryCollateral) "Collateral overdraw")
 
-                           (update vessels (at 'vaultOwner currentVesselEntry)
-                             { "collateralAmount": (- entryCollateral kdaToReturnToUser)
-                             , "debtAmount":       updatedDebtRemaining
-                             , "status":           updatedVesselStatus })
+                            (update vessels (at 'vaultOwner currentVesselEntry)
+                              { "collateralAmount": (- entryCollateral kdaToReturnToUser)
+                              , "debtAmount":       updatedDebtRemaining
+                              , "status":           updatedVesselStatus })
 
-                           ; Distribute vault’s fee share - spec: pay vaults 70% of fees
-                           (free.kusd-usd.transfer (fee-pool-account)
-                                                   (at 'vaultOwner currentVesselEntry)
-                                                   vaultFeeShare)
+                            ; Distribute vault’s fee share - spec: pay vaults 70% of fees
+                            (cdp.kusd-usd.transfer (fee-pool-account)
+                                                    (at 'vaultOwner currentVesselEntry)
+                                                    vaultFeeShare)
 
-                           ;Accumulate remaining and redeemed totals
-                           { "remainingRedeem":   (- remainingRedeemAmount redeemValueForThisVault)
-                           , "totalKdaRedeemed": (+ (at 'totalKdaRedeemed accumulatorMap) kdaToReturnToUser) }))
-                       initialAccumulatorMap
-                       sortedVesselEntries)))
+                            ;Accumulate remaining and redeemed totals
+                            { "remainingRedeem":   (- remainingRedeemAmount redeemValueForThisVault)
+                            , "totalKdaRedeemed": (+ (at 'totalKdaRedeemed accumulatorMap) kdaToReturnToUser) }))
+                        initialAccumulatorMap
+                        sortedVesselEntries)))
 
-          ; Ensure we used up all your kUSD - spec: enforce full redemption or fail
-          (enforce (<= (at 'remainingRedeem finalAccumulatorMap) 0.0) "Not enough collateral to redeem")
+            ; Ensure we used up all your kUSD - spec: enforce full redemption or fail
+            (enforce (<= (at 'remainingRedeem finalAccumulatorMap) 0.0) "Not enough collateral to redeem")
 
-          "RedeemCompleted")))))
+            "RedeemCompleted")))))
 
 
       ;  To implement when using indexer
@@ -475,7 +498,7 @@
       ;      })
 
       ;      ;Burn the kUSD from the vault’s kUSD balance / (this wont work) <-- see code we need the pact gods
-      ;      (free.kusd-usd.burn 
+      ;      (cdp.kusd-usd.burn 
       ;        (get-vault-principal vaultKey)
       ;        amountToRedeem)
 
@@ -511,7 +534,7 @@
 
 (defun liquidate-vault:string (targetVaultKey:string)
   @doc "Liquidate undercollateralized vessel"
-  (let ((liquidatorAccount (read-msg 'sender)))
+  (let ((liquidatorAccount (read-msg "sender")))
     (with-capability (LIQUIDATE_VAULT liquidatorAccount targetVaultKey)
       (with-read vessels targetVaultKey
         { "collateralAmount" := vesselCollateralAmount
@@ -531,8 +554,8 @@
 
           ; Stability Pool has enough kUSD to cover this debt
           (let* ((stabilityPoolUsdBalance
-                  (free.kusd-usd.get-balance
-                    (get-vault-principal (free.stability-pool.pool-key)))))
+                  (cdp.kusd-usd.get-balance
+                    (get-vault-principal (cdp.stability-pool.pool-key)))))
             (enforce (>= stabilityPoolUsdBalance vesselDebtAmount)
                      "Insufficient pool kUSD"))
 
@@ -551,8 +574,8 @@
             ; SO this is a crucial step!
 
             ;; we cant just call this i know
-            (free.kusd-usd.burn
-              (get-vault-principal (free.stability-pool.pool-key))
+            (cdp.kusd-usd.burn
+              (get-vault-principal (cdp.stability-pool.pool-key))
               vesselDebtAmount)
 
 
@@ -565,11 +588,11 @@
             ; Send the rest of the collateral into the Stability Pool
             (coin.transfer
               (get-vault-principal vaultKey)
-              (get-vault-principal (free.stability-pool.pool-key))
+              (get-vault-principal (cdp.stability-pool.pool-key))
               collateralToReturnToPool)
 
             ; Tell the Stability Pool to absorb that collateral as “debt paid”
-            (free.stability-pool.absorb-debt collateralToReturnToPool)
+            (cdp.stability-pool.absorb-debt collateralToReturnToPool)
 
             ; MNark it liquidated
             (update vessels targetVaultKey
