@@ -273,6 +273,7 @@
             ; but i donno i just uread the: https://www.notion.so/kadenateam/Kudos-Rewrite-Architecture-Initial-Draft-21be868b687880c48621d70caed4df70?showMoveTo=true&saveParent=true link
             ; That would mean we dont nee BORROW_MGR, REPAY_MGR, REDEEM_MGR, capabilities anymore.
 
+            ; IMPORTANT: solved with capability guards.....
             
 
             (cdp.kusd-usd.mint callerAccount borrowAmount) 
