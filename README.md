@@ -4,11 +4,11 @@ Kudos Protocol is a permissionless (well it still has governance for now :P), fu
 
 ## Concepts:
 
-## Simplification of concepts (Business logic @brittany)
+## Simplification of concepts (Business logic)
 
-* **CDP (Collateralized Debt Position)**: Think of it as a personal borrowing account where you lock up KDA to borrow kUSD against it, with automatic safeguards to prevent under-collateralization.
-* **Stability Pool**: A collective safety net funded by kUSD holders that steps in to cover bad loans, rewarding participants with KDA.
-* **kUSD**: A dollar-pegged token fully backed by KDA collateral, used as the system’s medium of exchange and loan currency.
+- **CDP (Collateralized Debt Position)**: Think of it as a personal borrowing account where you lock up KDA to borrow kUSD against it, with automatic safeguards to prevent under-collateralization.
+- **Stability Pool**: A collective safety net funded by kUSD holders that steps in to cover bad loans, rewarding participants with KDA.
+- **kUSD**: A dollar-pegged token fully backed by KDA collateral, used as the system’s medium of exchange and loan currency.
 
 ---
 
@@ -21,7 +21,8 @@ A CDP is essentially your individual vault on Kadena:
 3. **Maintain health** – If your collateral’s value drops too far (below the required buffer), anyone can liquidate your vault to protect the system.
 4. **Repay & reclaim** – You pay back your kUSD plus a small fee (which can be partially refunded over time), then withdraw your KDA back.
 
-Think of the CDP contract as kUSD’s on-chain “central bank” and risk controller in one. Whenever someone locks up KDA collateral, the CDP automatically checks that they’ve over-collateralized by a safe buffer (say 110 %), and then mints exactly that amount of kUSD into circulation—nothing more, nothing less. If the borrower repays, or if a vault becomes under-collateralized and is liquidated, the CDP is the only module that can burn kUSD to retire it. All fees from borrowing or redemption flow through a dedicated “fee pool” account that CDP also manages. Every mint, burn and fee movement is transparent on chain, and governance keysets control the collateral ratios and fee parameters—just like a board setting interest rates—so you always know kUSD supply is backed, audited, and adjusted under strict, programmable rules.
+Think of the CDP contract as kUSD’s on-chain “central bank” and risk controller in one. Whenever someone locks up KDA collateral, the CDP automatically checks that they’ve over-collateralized by a safe buffer (say 110 %), and then mints exactly that amount of kUSD into circulation nothing more, nothing less. If the borrower repays, or if a vault becomes undercollateralized and is liquidated, the CDP is the only module that can burn kUSD to retire it. All fees from borrowing or redemption flow through a dedicated “fee pool” account that CDP also manages. Every mint, burn and fee movement is transparent on chain, and governance keysets control the collateral ratios and fee parameters just like a board setting interest rates, so you always know kUSD supply is backed, audited, and adjusted under strict, programmable rules.
+
 > **Key point:** It’s an automated, on-chain credit line secured by your own KDA, with built-in price checks and liquidation rules.
 
 ---
@@ -35,7 +36,7 @@ The Stability Pool is a communal backstop that anyone can join by depositing kUS
 3. **Earn yield** – Every time the pool steps in, it distributes the incoming KDA proportionally to all depositors, so you collect KDA rewards.
 4. **Withdraw anytime** – You pull out your original kUSD plus any KDA you’ve earned, without needing to trigger expensive on-chain sorts or redemptions.
 
-> **Key point:** It aligns incentives—depositors share in liquidation gains, and the system has a ready source of kUSD to keep borrowing safe.
+> **Key point:** It aligns incentives depositors share in liquidation gains, and the system has a ready source of kUSD to keep borrowing safe.
 
 ---
 
@@ -45,7 +46,7 @@ kUSD is the system’s dollar-pegged token, fully backed by KDA collateral in CD
 
 1. **Minting** – Created when users borrow against their CDPs (minus a small fee).
 2. **Burning** – Destroyed when loans are repaid or the Stability Pool absorbs debt.
-3. **One-to-one value** – Designed to trade as close to \$1 as possible, enforced by the collateralization (CDP) mechanics and open liquidation.
+3. **One-to-one value** – Designed to trade as close to $1 as possible, enforced by the collateralization (CDP) mechanics and open liquidation.
 4. **Use cases** – Acts as the on-chain “cash” for trading, lending, and liquidity provision within Kadena.
 
 > **Key point:** kUSD gives you dollar-style stability while retaining full on-chain transparency and collateral backing.
@@ -58,9 +59,9 @@ The CDP module lets users lock KDA collateral in individual “vessels” and bo
 **STABILITY POOL**
 The Stability Pool holds users’ kUSD deposits and automatically absorbs the debt of undercollateralized CDP vaults during liquidations, exchanging pooled kUSD for KDA collateral. Depositors earn KDA yield proportional to their share of the pool each time a liquidation occurs, aligning incentives to keep the system solvent.
 
-
 **Important:**
-> Its important to know that, users don’t earn yield simply by opening a CDP. Any fees the CDP collects stay in the protocol’s fee pool or go back to borrowers as refunds—so to actually earn KDA you must deposit your kUSD into the Stability Pool. There, whenever under-collateralized loans are liquidated, the pool uses its kUSD to cover the debt and in return distributes the incoming KDA collateral proportionally to all depositors, giving you real, on-chain yield.
+
+> Its important to know that, users don’t earn yield simply by opening a CDP. Any fees the CDP collects stay in the protocol’s fee pool or go back to borrowers as refunds, so to actually earn KDA you must deposit your kUSD into the Stability Pool. There, whenever under collateralized loans are liquidated, the pool uses its kUSD to cover the debt and in return distributes the incoming KDA collateral proportionally to all depositors, giving you real, on-chain yield.
 
 # Files:
 
@@ -202,14 +203,14 @@ Protocol calls:
 3. Under the hood:
 
    - Burns 50 kUSD from the pool (covers her debt)
-   - Pays liquidator \~0.5 KDA
-   - Sends \~99.5 KDA into pool via `(free.stability-pool.absorb-debt 99.5)`
+   - Pays liquidator 0.5 KDA
+   - Sends 99.5 KDA into pool via `(free.stability-pool.absorb-debt 99.5)`
    - Bumps `cumulativeGain` so **all** depositors (just Emily) earn 99.5 KDA
 
 4. **Outcome**
 
    - Her 50 kUSD is spent
-   - She now holds \~99.5 KDA as pool yield
+   - She now holds 99.5 KDA as pool yield
 
 ---
 
@@ -219,7 +220,7 @@ Protocol calls:
 (free.stability-pool.withdraw 50.0)
 ```
 
-> Emily receives \~99.5 KDA.
+> Emily receives 99.5 KDA.
 
 **Edges**
 
@@ -456,6 +457,136 @@ Key User Flows Explained:
    - User redeems kUSD for discounted collateral
    - System finds highest-LTV vaults to redeem against
    - vessel owners receive 70% of redemption fees
+
+     **Concept of redemption better explained since this is key to the protocol**
+
+   ## When to `redeem-kusd` vs. `repay-kusd`
+
+   | Action            | Use Case                                 | Fee     | Effect on _your_ vault                          |
+   | ----------------- | ---------------------------------------- | ------- | ----------------------------------------------- |
+   | **`repay-kusd`**  | You want to clear _your_ debt            | **0 %** | Immediate debt reduction → collateral returned  |
+   | **`redeem-kusd`** | You hold _extra_ kUSD and seek arbitrage | 0.5 %   | Burns kUSD → processes vaults in descending LTV |
+
+   - **Always** use **`repay-kusd`** to pay down _your own_ vault: it’s the cheapest (0 % fee) and simplest path.
+   - Use **`redeem-kusd`** only if you already have kUSD in wallet and want to arbitrage others’ vaults (capturing the 0.5 % discount on KDA).
+     Your own vault stays out of the “front-LTV queue” as long as its LTV is lower than theirs.
+
+   Redemption Scenarios
+
+   ### Scenario A – Pure Redeemer (No Own Debt)
+
+   Amir buys 102.04 kUSD for $100, meaning that 1 kUSD costs approximately $0.98 (because 100/102.04 ≈ 0.98). (arbitrage opportunity)
+   This discount is the incentive for Amir to perform the arbitrage: he can redeem 102.04 kUSD for 101.53 KDA (which is worth $101.53 at 1:1 ratio) and make a profit.
+
+   Amir holds **no debt**, just kUSD. He buys kUSD on the open market at a discount and redeems against others:
+
+   ```mermaid
+   sequenceDiagram
+   title Scenario A: Pure Redeemer (No Own Debt)
+
+   actor Amir
+   participant Exchange
+   participant CDP_Contract
+   participant FeePool
+   participant VaultOwners
+
+   Amir->>Exchange: Buy 102.04 kUSD for $100
+   Exchange-->>Amir: Transfer 102.04 kUSD
+   Amir->>CDP_Contract: redeem-kusd(102.04)
+   CDP_Contract->>CDP_Contract: Burn 101.53 kUSD
+   CDP_Contract->>FeePool: Transfer 0.51 kUSD fee
+   CDP_Contract->>VaultOwners: Distribute vault fees (70%)
+   CDP_Contract-->>Amir: Transfer 101.53 KDA
+   Amir->>Exchange: Sell 101.53 KDA
+   Exchange-->>Amir: $101.53
+   ```
+
+   **Profit calc:**
+
+   ```text
+   investment    = $100
+   kUSD_bought   ≈ 100 / 0.98 = 102.04 kUSD
+   fee           = 102.04 × 0.005 = 0.51 kUSD
+   KDA_received  = 102.04 – 0.51 = 101.53 KDA
+   USD_return    = 101.53 × $1.00 = $101.53
+   profit        = 101.53 – 100 = $1.53
+   ```
+
+   ***
+
+   ### Scenario B – Healthy Vault (200 % LTV)
+
+   You have **200 % collateral** (200 KDA vs. 100 kUSD debt). You hold kUSD outside the vault and want to arbitrage:
+
+   ```mermaid
+   sequenceDiagram
+   title Scenario B: Healthy Vault Arbitrage
+
+   actor You
+   participant CDP_Contract
+   participant FeePool
+   participant VaultOwners
+
+   You->>Exchange: Obtain 100 kUSD
+   You->>CDP_Contract: redeem-kusd(100)
+   CDP_Contract->>CDP_Contract: Burn 99.50 kUSD
+   CDP_Contract->>FeePool: Transfer 0.50 kUSD fee
+   CDP_Contract->>VaultOwners: Distribute vault fees
+   CDP_Contract-->>You: Transfer 99.50 KDA
+   You->>CDP_Contract: repay-kusd(100)
+   CDP_Contract->>CDP_Contract: Burn 100 kUSD (no fee)
+   CDP_Contract-->>You: Release 200 KDA collateral
+   You->>Exchange: Sell net + collateral
+   ```
+
+   - **Net KDA profit:** 99.5 from redeem, plus you keep your original 200 KDA when you repay.
+   - **Effective gain:** 0.5 % on the 100 kUSD you arbitraged, all while your vault stays safe.
+
+   ***
+
+   ### Scenario C – Marginal Vault (120 % LTV)
+
+   You have **120 % collateral** (120 KDA vs. 100 kUSD debt). You think: “I’ll redeem my own debt.”
+
+   ```mermaid
+   sequenceDiagram
+   title Scenario C: Self-Redemption at 120 % LTV
+
+   actor You
+   participant CDP_Contract
+
+   You->>CDP_Contract: redeem-kusd(100)
+   CDP_Contract->>CDP_Contract: Burn 99.50 kUSD
+   CDP_Contract-->>You: Transfer 99.50 KDA
+   Note right of CDP_Contract: Now vault owes 0.50 kUSD and holds 20.50 KDA
+   ```
+
+   **Vault before:** 120 KDA / 100 kUSD → 83.3 % (actually _over_-collateralized vs. 110 % floor).
+   **Vault after:** (20.50 KDA / 0.50 kUSD) → 4100 % LTV!
+
+   - But you’ve paid a **0.5 kUSD fee** for zero net benefit: you end up with 120 KDA back _minus_ the fee, plus a tiny 0.5 kUSD debt to repay.
+
+   **Better:** just `repay-kusd(100)` → 0 % fee, close the vault.
+
+   ***
+
+   ## 4. Decision Matrix
+
+   | Vault LTV Zone | If you hold kUSD…              | Recommended Action | Why?                                  |
+   | -------------- | ------------------------------ | ------------------ | ------------------------------------- |
+   | **< 110 %**    | — (you’re undercollateralized) | —                  | Already at liquidation risk           |
+   | **110–150 %**  | Want debt off your vault       | **`repay-kusd`**   | 0 % fee, single step                  |
+   | **> 150 %**    | Arbitrage opportunity          | **`redeem-kusd`**  | Capture 0.5 % fee from _other_ vaults |
+
+   ***
+
+   **Bottom line:**
+
+   - **Buffer your vault** at ≥ 150 % to stay clear of liquidation panic.
+   - **Repay** when you’re in the danger zone (110–150 %).
+   - **Redeem** when you’re safely over-collateralized and hold spare kUSD for arbitrage.
+
+   > **Conclusion: Redemption is profit capture from weaker participants. Repayment is risk management. Healthy vaults can afford to hunt; weak vaults must defend**
 
 8. **Loan Repayment**:
    - User repays kUSD to reduce debt
@@ -802,45 +933,3 @@ This way the cdp would handle single vaults instead of going over all vaults
 - Less gas consumption
 - Off-Chain Sorting
 - and simpeler code!
-
----
-
-(read my comments in cdp.pact about minting / burning, pact gods needed) -> maybe we shouldnt mint at all and just do transfer from a escrow
-
-It could be a idea idea to offload the actual kUSD minting / burning calls to a trusted backend service, that does the mint/burn calls
-(Oversimplified chart)
-
-```mermaid
-
-sequenceDiagram
-    participant User
-    participant Frontend
-    participant Backend
-    participant Blockchain
-    participant KUSDContract
-
-    Note over User, Blockchain: Minting Flow
-    User->>Frontend: Request mintKusd(100)
-    Frontend->>Backend: POST /mint {user: "k:user123", amount: 100}
-    Backend->>Backend: Validate request
-    Backend->>KUSDContract: Construct mint transaction
-    Backend->>Backend: Sign with SUPPLY_MANAGER key
-    Backend->>Blockchain: Submit signed transaction
-    Blockchain->>KUSDContract: Execute free.kusd-usd.mint("k:user123", 100.0)
-    KUSDContract->>Blockchain: Update state (mint tokens)
-    Blockchain-->>Backend: Transaction receipt
-    Backend-->>Frontend: {success: true, txHash: "0x123..."}
-    Frontend-->>User: Show success notification
-```
-
-## The primary task of this service would be:
-
-- Hold the SUPPLY_MANAGER keyset (to sign transaction)
-- Expose its own authenticated GraphQL/REST endpoint
-- Validate user requests
-- Call .mint / .burn on-chain
-
-But this can propbably be done without a backend (burn/mint) since this comes with a extra security risk that is probably handled better with pact and keeping it on chain
-#orNotMintAndBurn
-
-
