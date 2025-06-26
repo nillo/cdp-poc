@@ -27,8 +27,8 @@
   (load "../contracts/stability-pool.pact")
   (env-gasmodel 'table)
   (env-gaslimit 150000)
-  (expect "Typecheck KUSD"           () (typecheck "free.kusd-usd"))
-  (expect "Typecheck Stability Pool" () (typecheck "free.stability-pool"))
+  (expect "Typecheck KUSD"           () (typecheck "cdp.kusd-usd"))
+  (expect "Typecheck Stability Pool" () (typecheck "cdp.stability-pool"))
 (commit-tx)
 
 ; ## Account Creation & Funding
@@ -42,24 +42,25 @@
         (bob-principal        (create-principal (read-keyset "bob-guard")))
         (liquidator-principal (create-principal (read-keyset "liquidator-guard"))))
     ;;Create accounts
-    (free.kusd-usd.create-account alice-principal       (read-keyset "alice-guard"))
-    (free.kusd-usd.create-account bob-principal         (read-keyset "bob-guard"))
-    (free.kusd-usd.create-account liquidator-principal (read-keyset "liquidator-guard"))
+    (cdp.kusd-usd.create-account alice-principal       (read-keyset "alice-guard"))
+    (cdp.kusd-usd.create-account bob-principal         (read-keyset "bob-guard"))
+    (cdp.kusd-usd.create-account liquidator-principal (read-keyset "liquidator-guard"))
     ; Fund accounts
-    (env-sigs [{'key: "supply-manager", 'caps: [(free.kusd-usd.SUPPLY_MANAGER)]}])
-    (free.kusd-usd.mint alice-principal      100.0)
-    (free.kusd-usd.mint bob-principal        200.0)
-    (free.kusd-usd.mint liquidator-principal 50.0)
+    (env-sigs [{'key: "supply-manager", 'caps: [(cdp.kusd-usd.SUPPLY_MANAGER)]}])
+    ;; cannot directly mint kusd-usd
+    ;  (cdp.kusd-usd.mint alice-principal      100.0)
+    ;  (cdp.kusd-usd.mint bob-principal        200.0)
+    ;  (cdp.kusd-usd.mint liquidator-principal 50.0)
   )
 (commit-tx)
 
 ; ## Stability Pool Bootstrap
 ; i should be able to call functions on kusd <-- but we need the pact gods for this.
 (begin-tx "Stability Pool Bootstrap")
-  (env-sigs [{'key: "pool-admin", 'caps: [(free.stability-pool.GOVERNANCE)]}])
-  (free.stability-pool.init-pool)
+  (env-sigs [{'key: "pool-admin", 'caps: [(cdp.stability-pool.GOVERNANCE)]}])
+  (cdp.stability-pool.init-pool)
   (expect-failure "re-init" "Pool already initialized"
-  (free.stability-pool.init-pool))
+  (cdp.stability-pool.init-pool))
 (commit-tx)
 
 ; ## Deposit Only Test
@@ -68,21 +69,21 @@
     "alice-guard": {"keys": ["alice"], "pred": "keys-all"}
   })
   (let ((alice-principal (create-principal (read-keyset "alice-guard")))
-        (pool-principal  (free.stability-pool.pool-principal "main")))
+        (pool-principal  (cdp.stability-pool.pool-principal "main")))
     (env-data { 'sender: alice-principal })
     (env-sigs
       [{'key: "alice", 'caps: [
-          (free.kusd-usd.TRANSFER alice-principal pool-principal 50.0)
+          (cdp.kusd-usd.TRANSFER alice-principal pool-principal 50.0)
         ]}])
     (expect-failure "deposit zero"     "Deposit amount must be > 0"
-      (free.stability-pool.deposit-kusd 0.0))
+      (cdp.stability-pool.deposit-kusd 0.0))
     (expect-failure "deposit negative" "Deposit amount must be > 0"
-      (free.stability-pool.deposit-kusd -1.0))
-    (free.stability-pool.deposit-kusd 50.0)
+      (cdp.stability-pool.deposit-kusd -1.0))
+    (cdp.stability-pool.deposit-kusd 50.0)
     (expect "pool totalDeposits" 50.0
-      (at 'totalDeposits (free.stability-pool.get-pool-state "main")))
+      (at 'totalDeposits (cdp.stability-pool.get-pool-state "main")))
     (expect "alice claim" 50.0
-      (at 'deposit (free.stability-pool.get-claim alice-principal)))
+      (at 'deposit (cdp.stability-pool.get-claim alice-principal)))
   )
 (commit-tx)
 
@@ -94,7 +95,7 @@
     "pool-admin-keyset": {"keys": ["pool-admin"],  "pred": "keys-all"}
   })
   (let ((alice-principal (create-principal (read-keyset "alice-guard")))
-        (pool-principal  (free.stability-pool.pool-principal "main")))
+        (pool-principal  (cdp.stability-pool.pool-principal "main")))
     ; Set the sender explicitly
     (env-data { 'sender: alice-principal })
 
@@ -108,24 +109,24 @@
           ]
         }
         { 'key: "pool-admin", 'caps: [
-            (free.stability-pool.POOL-RESERVE "main")
-            ; (free.kusd-usd.TRANSFER pool-principal alice-principal 20.0)
+            (cdp.stability-pool.POOL-RESERVE "main")
+            ; (cdp.kusd-usd.TRANSFER pool-principal alice-principal 20.0)
           ]
         }
       ])
 
     ; Run the tests
     (expect-failure "withdraw zero"     "Withdraw amount must be > 0"
-      (free.stability-pool.withdraw 0.0))
+      (cdp.stability-pool.withdraw 0.0))
     (expect-failure "withdraw negative" "Withdraw amount must be > 0"
-      (free.stability-pool.withdraw -5.0))
+      (cdp.stability-pool.withdraw -5.0))
     (expect-failure "overwithdraw"      "Exceeds deposit"
-      (free.stability-pool.withdraw 100.0))
+      (cdp.stability-pool.withdraw 100.0))
     
-    (free.stability-pool.withdraw 20.0)
+    (cdp.stability-pool.withdraw 20.0)
     (expect "alice deposit" 30.0
-      (at 'deposit (free.stability-pool.get-claim alice-principal)))
+      (at 'deposit (cdp.stability-pool.get-claim alice-principal)))
     (expect "pool totalDeposits" 30.0
-      (at 'totalDeposits (free.stability-pool.get-pool-state "main")))
+      (at 'totalDeposits (cdp.stability-pool.get-pool-state "main")))
   )
 (commit-tx)

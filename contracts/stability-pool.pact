@@ -81,7 +81,7 @@
         , "cumulativeGain": 0.0 })
       (let ((pool-principal (pool-principal (pool-key)))
             (pool-guard (create-pool-guard (pool-key))))
-        (free.kusd-usd.create-account pool-principal pool-guard)) ; create the initial pool account
+        (cdp.kusd-usd.create-account pool-principal pool-guard)) ; create the initial pool account
       "Pool initialized"))
 
 
@@ -97,7 +97,7 @@
           (poolAccount      (pool-principal (pool-key))))
       (enforce (> depositAmount 0.0) "Deposit amount must be > 0")
       ; Transfer kUSD into the pool
-      (free.kusd-usd.transfer depositorAccount poolAccount depositAmount)
+      (cdp.kusd-usd.transfer depositorAccount poolAccount depositAmount)
 
       (with-read pool-state (pool-key)
         { "totalDeposits":=    existingTotalDeposits
@@ -162,7 +162,7 @@
                  (newTotalDeposits   (- currentTotalDeposits withdrawAmount))
 
                  ; Check pool balance before transferring kUSD
-                 (poolUsdBalance     (free.kusd-usd.get-balance poolAccount)))
+                 (poolUsdBalance     (cdp.kusd-usd.get-balance poolAccount)))
 
             ; Ensure the pool can return the kUSD
             (enforce (>= poolUsdBalance withdrawAmount) "Insufficient pool kUSD")
@@ -177,8 +177,8 @@
               , "gainSnapshot": currentCumulativeGain })
 
             (with-capability (POOL-RESERVE (pool-key))
-              (install-capability (free.kusd-usd.TRANSFER poolAccount user withdrawAmount))
-              (free.kusd-usd.transfer poolAccount user withdrawAmount)
+              (install-capability (cdp.kusd-usd.TRANSFER poolAccount user withdrawAmount))
+              (cdp.kusd-usd.transfer poolAccount user withdrawAmount)
             )
 
             ; If any KDA yield is due, transfer it to the user and emit event

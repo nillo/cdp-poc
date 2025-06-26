@@ -107,7 +107,7 @@
     (with-default-read oracle-table asset { "provider": NIL, "timeout": 0.0 } { "provider" := provider, "timeout" := timeout }
       (cond
         ((= "DIA" provider)
-          (let ((result (free.dia-oracle.get-value (+ asset "/USD"))))
+          (let ((result (cdp.dia-oracle.get-value (+ asset "/USD"))))
             { "timestamp": (at 'timestamp result), "value": (at 'value result), "timeout": timeout }))
         { "timestamp": UNIX_EPOCH, "value": 0.0, "timeout": 0.0 })))
 

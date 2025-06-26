@@ -18,7 +18,7 @@
 
 ; ## Contract Deployment
 (begin-tx "Load Contracts")
-  (env-data { 'ns: "free", 'upgrade: false })
+  (env-data { 'ns: "cdp", 'upgrade: false })
 (env-sigs [
     { 'key: "admin", 'caps: [] },
     { 'key: "cdp-admin", 'caps: [] },
@@ -28,13 +28,14 @@
   (load "../contracts/stability-pool.pact")
   (load "../contracts/cdp.pact")
   (env-sigs [
-    { 'key: "admin", 'caps: [(free.kusd.GOVERNANCE)] },
+    { 'key: "admin", 'caps: [(cdp.kusd-usd.GOVERNANCE)] }
   ])
-  (free.cdp.register-kusd-mint-guard)
+  (cdp.cdp.register-kusd-mint-guard)
+  (cdp.cdp.register-kusd-burn-guard)
   (env-gasmodel 'table)
   (env-gaslimit 150000)
-  (expect "Typecheck KUSD" () (typecheck "free.kusd-usd"))
-  (expect "Typecheck CDP" () (typecheck "free.cdp"))
+  (expect "Typecheck KUSD" () (typecheck "cdp.kusd-usd"))
+  (expect "Typecheck CDP" () (typecheck "cdp.cdp"))
 (commit-tx)
 
 ;  ; ## Account Creation
@@ -44,22 +45,22 @@
 ;      "charlie-guard": {"keys": ["charlie"], "pred": "keys-all"}
 ;    })
 ;    (env-sigs [])
-;    (free.kusd-usd.create-account "alice" (read-keyset "alice-guard"))
-;    (free.kusd-usd.create-account "charlie" (read-keyset "charlie-guard"))
+;    (cdp.kusd-usd.create-account "alice" (read-keyset "alice-guard"))
+;    (cdp.kusd-usd.create-account "charlie" (read-keyset "charlie-guard"))
 ;  (commit-tx)
 
 ;  ; ## CDP Bootstrap: Initialize oracle
 ;  (begin-tx "CDP Bootstrap")
-;    (env-sigs [{ 'key: "oracle", 'caps: [(free.cdp.READ_ORACLE)] }])  ;; Add READ_ORACLE for oracle insertion
-;    (insert free.cdp.oracle-prices "KDA" { "symbol": "KDA", "price": 1.0, "timestamp": (time "2025-06-20T00:00:00Z") })
-;    (env-sigs [{ 'key: "supply-manager", 'caps: [(free.kusd-usd.SUPPLY_MANAGER)] }])
-;    (free.kusd-usd.mint "alice" 200.0)
-;    (free.kusd-usd.mint "charlie" 200.0)
+;    (env-sigs [{ 'key: "oracle", 'caps: [(cdp.cdp.READ_ORACLE)] }])  ;; Add READ_ORACLE for oracle insertion
+;    (insert cdp.cdp.oracle-prices "KDA" { "symbol": "KDA", "price": 1.0, "timestamp": (time "2025-06-20T00:00:00Z") })
+;    (env-sigs [{ 'key: "supply-manager", 'caps: [(cdp.kusd-usd.SUPPLY_MANAGER)] }])
+;    (cdp.kusd-usd.mint "alice" 200.0)
+;    (cdp.kusd-usd.mint "charlie" 200.0)
 ;  (commit-tx)
 
 ;  ; ## 1) Open / Duplicate-open vault
 ;  (begin-tx "Vault Open Tests")
-;    (env-sigs [{ 'key: "alice", 'caps: [(free.cdp.OPEN_VAULT "alice")] }])  ;; Add OPEN_VAULT capability
-;    (free.cdp.open-vault)
-;    (expect-failure "Duplicate open" "Vault already exists for this account" (free.cdp.open-vault))
+;    (env-sigs [{ 'key: "alice", 'caps: [(cdp.cdp.OPEN_VAULT "alice")] }])  ;; Add OPEN_VAULT capability
+;    (cdp.cdp.open-vault)
+;    (expect-failure "Duplicate open" "Vault already exists for this account" (cdp.cdp.open-vault))
 ;  (commit-tx)
