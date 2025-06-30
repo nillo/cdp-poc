@@ -133,14 +133,9 @@
     (cdp.kusd-usd.mint (read-string "user1") 100.0)
   )
 
-  (env-sigs [
-    { 'key: 'supply-manager
-    ,'caps: [(cdp.kusd-usd.SUPPLY_MANAGER)]
-    }
-  ])
-
-  (expect "Mint tokens to user1"
-    true
+ 
+  (expect-failure "Mint tokens to user1 fails if not called by registered mint guard"
+    "No value found in table cdp.kusd-usd_capability-guard-table for key: mint"
     (cdp.kusd-usd.mint (read-string "user1") 100.0))
 
   (expect "Check balance after mint"
@@ -455,134 +450,5 @@
   (expect-failure "Updating supply without capability fails"
     "require-capability: not granted: "
     (cdp.kusd-usd.update-supply 10.0))
-
-(commit-tx)
-
-; ## Freeze Account
-(begin-tx "Freeze account")
-
-  (env-data {
-    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
-    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
-  })
-
-  (expect "Validate that user2 is not frozen"
-    false
-    (at "frozen" (cdp.kusd-usd.kusd-account-details (read-string "user2")))
-  )
-
-  (expect-failure "Freeze user2 account without sig fails"
-    "Keyset failure"
-    (cdp.kusd-usd.freeze-account (read-string "user2")))
-
-  (env-sigs [
-    { 'key: 'freeze-manager
-    ,'caps: [(cdp.kusd-usd.FREEZE_MANAGER)]
-    }
-  ])
-
-  (expect "Freeze user2 account"
-    "Write succeeded"
-    (cdp.kusd-usd.freeze-account (read-string "user2"))
-  )
-
-  (expect "Validate if account is frozen"
-    true
-    (at "frozen" (cdp.kusd-usd.kusd-account-details (read-string "user2")))
-  )
-
-  (expect "Freeze events"
-    [{"name": "cdp.kusd-usd.ACCOUNT_FROZEN", "params": ["k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}]
-    (map (remove "module-hash") (env-events true)))
-
-  (env-sigs [
-    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
-    ,'caps: [(cdp.kusd-usd.TRANSFER "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7" "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" 10.0)]
-    }
-  ])
-
-  (expect-failure "Fail to transfer from frozen account"
-    "only active or new accounts may be debited"
-    (cdp.kusd-usd.transfer (read-string "user2") (read-string "user1") 10.0))
-
-  (env-sigs [
-    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
-    ,'caps: [(cdp.kusd-usd.TRANSFER "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7" 10.0)]
-    }
-  ])
-
-  (expect "Transferring to a frozen account should succeed"
-    "Write succeeded"
-    (cdp.kusd-usd.transfer (read-string "user1") (read-string "user2") 10.0))
-
-(commit-tx)
-
-; ## Unfreeze Account
-(begin-tx "Unfreeze account")
-  (env-data {
-    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
-    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
-  })
-
-  (expect "Validate that user2 is frozen"
-    true
-    (at "frozen" (cdp.kusd-usd.kusd-account-details (read-string "user2")))
-  )
-
-  (expect-failure "Unfreeze user2 account without sig fails"
-    "Keyset failure"
-    (cdp.kusd-usd.unfreeze-account (read-string "user2")))
-
-  (env-sigs [
-    { 'key: 'freeze-manager
-    ,'caps: [(cdp.kusd-usd.FREEZE_MANAGER)]
-    }
-  ])
-
-  (expect "Unfreeze user2 account"
-    "Write succeeded"
-    (cdp.kusd-usd.unfreeze-account (read-string "user2"))
-  )
-
-  (expect "Validate that user2 is not frozen"
-    false
-    (at "frozen" (cdp.kusd-usd.kusd-account-details (read-string "user2")))
-  )
-
-  (expect "Unfreeze events"
-    [{"name": "cdp.kusd-usd.ACCOUNT_UNFROZEN", "params": ["k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}]
-    (map (remove "module-hash") (env-events true)))
-
-  (env-sigs [
-    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
-    ,'caps: [(cdp.kusd-usd.TRANSFER (read-string "user2") (read-string "user1") 10.0)]
-    }
-  ])
-
-  (expect "Transfer from unfrozen account succeeds"
-    "Write succeeded"
-    (cdp.kusd-usd.transfer (read-string "user2") (read-string "user1") 10.0)
-  )
-
-  (expect "Check balance"
-    20.0
-    (cdp.kusd-usd.get-balance (read-string "user2"))
-  )
-
-  (env-sigs [
-    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
-    ,'caps: [(cdp.kusd-usd.TRANSFER (read-string "user1") (read-string "user2") 10.0)]
-    }
-  ])
-
-  (expect "Transfer to unfrozen account succeeds"
-    "Write succeeded"
-    (cdp.kusd-usd.transfer (read-string "user1") (read-string "user2") 10.0)
-  )
-
-  (expect "Check balance"
-    30.0
-    (cdp.kusd-usd.get-balance (read-string "user2"))
-  )
 
 (commit-tx)

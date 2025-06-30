@@ -4,8 +4,7 @@
 
   @doc " 'KUSD' is an implementation of the KUSD Stablecoin. \ 
          \ This module implements the fungible-v2 interface and supports features for \
-         \ minting, burning, freezing, and unfreezing accounts, as well as transfers \ 
-         \ and cross-chain transfers."
+         \ minting, burning accounts, as well as transfers and cross-chain transfers."
 
   (implements fungible-v2)
   (implements fungible-xchain-v1)
@@ -14,7 +13,6 @@
   ; Keysets
 
   (defconst ADMIN_KS:string "kusd.admin-keyset")
-  (defconst FREEZE_MANAGER_KS:string "kusd.freeze-manager-keyset")
 
   ; --------------------------------------------------------------------------
   ; Metadata
@@ -51,14 +49,12 @@
          \ ROW KEY: accountId. "
     balance:decimal
     guard:guard
-    frozen:bool
   )
 
   (defschema account-details-schema
    account:string
    balance:decimal
    guard:guard
-   frozen:bool
   )
 
   (defschema capability-guard-schema
@@ -75,12 +71,6 @@
   (defcap GOVERNANCE:bool ()
     @doc "Give the admin full access to call and upgrade the module. "
     (enforce-guard ADMIN_KS)
-    true
-  )
-
-  (defcap FREEZE_MANAGER:bool ()
-    @doc "Capability for managing freeze operations"
-    (enforce-guard FREEZE_MANAGER_KS)
     true
   )
 
@@ -172,18 +162,6 @@
 
   (defcap MINT:bool (amount:decimal to-account:string)
     @doc "Event emitted when tokens are minted."
-    @event
-    true
-  )
-
-  (defcap ACCOUNT_FROZEN:bool (account:string)
-    @doc "Event emitted when an account is frozen."
-    @event
-    true
-  )
-
-  (defcap ACCOUNT_UNFROZEN:bool (account:string )
-    @doc "Event emitted when an account is unfrozen."
     @event
     true
   )
@@ -294,7 +272,6 @@
     (insert token-table account
       { "balance" : 0.0
       , "guard"   : guard
-      , "frozen"  : false
       })
   )
 
@@ -306,11 +283,7 @@
   )
 
   (defun details:object{fungible-v2.account-details} (account:string)
-    (remove "frozen" (kusd-account-details account))
-  )
-
-  (defun kusd-account-details:object{account-details-schema} (account:string)
-    (+ { "account" : account }  (read token-table account))
+    (+ { "account" : account }  (read token-table account)) 
   )
 
   (defun rotate:string (account:string new-guard:guard)
@@ -351,12 +324,9 @@
 
     (require-capability (DEBIT account))
     (with-read token-table account
-      { "balance" := balance,
-        "frozen" := frozen }
+      { "balance" := balance }
 
       (enforce (<= amount balance) "Insufficient funds")
-      (enforce (not frozen)
-        "only active or new accounts may be debited")
 
       (update token-table account
         { "balance" : (- balance amount) }
@@ -369,8 +339,8 @@
 
     (require-capability (CREDIT account))
     (with-default-read token-table account
-      { "balance" : -1.0, "guard" : guard, "frozen" : false }
-      { "balance" := balance, "guard" := retg, "frozen" := frozen }
+      { "balance" : -1.0, "guard" : guard }
+      { "balance" := balance, "guard" := retg }
       ; we don't want to overwrite an existing guard with the user-supplied one
       (enforce (= retg guard)
         "Account guards do not match")
@@ -380,8 +350,7 @@
           (enforce-principal account guard)
           (insert token-table account
              {   "balance": amount,
-                 "guard": guard,
-                "frozen": false
+                 "guard": guard
              }))
         (update token-table account {
           "balance": (+ amount balance)
@@ -493,24 +462,6 @@
       (emit-event (SUPPLY_UPDATED new-supply)))
   )
 
-  ; --------------------------------------------------------------------------
-  ; Freezing and Unfreezing
-
-  (defun freeze-account:string (account:string)
-    @doc "Freeze an account"
-    (with-capability (FREEZE_MANAGER)
-      (emit-event (ACCOUNT_FROZEN account))
-      (update token-table account {"frozen": true})
-    )
-  )
-
-  (defun unfreeze-account:string (account:string )
-    @doc "Unfreeze an account"
-    (with-capability (FREEZE_MANAGER)
-      (emit-event (ACCOUNT_UNFROZEN account))
-      (update token-table account {"frozen": false})
-    )
-  )
 )
 
 (if (read-msg "upgrade")
