@@ -17,11 +17,13 @@
   )
 
   ; -- Schemas & Tables -- 
+  (defschema capability-guard-schema
+   guard:guard
+  )
 
   ; cumulativeGain
   ; The pool keeps a running total of KDA-per-kUSD it has absorbed over time. 
   ; Every time a liquidation happens, it calculates how much KDA each deposited kUSD should earn and adds that increment to cumulativeGain.
-
   (defschema state
     totalDeposits:decimal
     cumulativeGain:decimal)
@@ -30,9 +32,30 @@
   (defschema claim
     deposit:decimal
     gainSnapshot:decimal)
+
   (deftable claims:{claim})
+  (deftable capability-guard-table:{capability-guard-schema})
 
   (defconst REDEEM-FEE-PCT 0.005)
+  (defconst ABSORB_ROW:string "absord" "Used for tables to store absord guard")
+
+
+  
+  ; -- Guard Helpers --
+  (defun register-kda-absord-guard:string (guard:guard)
+    @doc "Register a guard for the KDA absorb capability"
+    (with-capability (GOVERNANCE)
+      (insert capability-guard-table ABSORB_ROW
+        { "guard": guard }
+      )
+    )
+  )
+
+  (defun enforce-cdp-absord:bool ()
+    (with-read capability-guard-table ABSORB_ROW {'guard:=g}
+      (enforce-guard g)
+    )
+  )
 
   ; --  Pool Helpers --
   (defun pool-key:string ()
@@ -203,6 +226,7 @@
 ; 4. Updating the pool’s cumulativeGain so future withdrawals include this new yield.
   (defun absorb-debt:string (kdaAmount:decimal)
     @doc "Absorb collateral from liquidated vessels into the pool"
+     (enforce-cdp-absord)
       (with-read pool-state (pool-key)
         { "totalDeposits":= totalDeposits
         , "cumulativeGain":= cumulativeGain }
@@ -227,6 +251,7 @@
   [
     (create-table pool-state)
     (create-table claims)
+    (create-table capability-guard-table)
     ;(init-pool)
   ]
 )
