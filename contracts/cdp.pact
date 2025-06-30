@@ -26,6 +26,15 @@
     true
   )
 
+  (defcap KDA_ABSORD:bool () 
+    @doc "Capability to absord KDA from liquidated vessels into the stability pool"
+    true
+  )
+
+  (defun register-kda-absord-guard:string ()
+    (cdp.stability-pool.register-kda-absord-guard (create-capability-guard (KDA_ABSORD)))
+  )
+
   (defun register-kusd-mint-guard:string ()
     (cdp.kusd-usd.register-cdp-mint-guard (create-capability-guard (KUSD_MINT)))
   )
