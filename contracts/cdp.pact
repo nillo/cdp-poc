@@ -367,6 +367,22 @@
     )
     "collateral updated"
   )
+
+  ;Why needed: Aligns incentives with market conditions
+    ; During normal dips: Lower rewards save protocol funds
+    ; During crashes: Higher rewards ensure rapid liquidations
+    ; Base minimum: Guarantees liquidation viability
+  (defun liquidation-reward:decimal (currentCR:decimal minCR:decimal)
+    @doc "Calculate dynamic liquidation reward based on risk severity"
+    ; Formula: (minCR - currentCR) / minCR
+    ; Example: minCR=110%, currentCR=108% → (110-108)/110 = 1.82%
+    (let ((severity (max 0.0 (/ (- minCR currentCR) minCR))))
+    
+    ;Final reward percentage
+      ; Base: 0.5% minimum reward
+      ;Risk premium: Additional 0-1.5% scaled by severity
+      ; Formula: 0.005 + (severity × 0.015)
+    (+ 0.005 (* severity 0.015))))
   
   ;; borrow only
   (defun update-debt-amount (account:string newDebtAmount:decimal)
@@ -515,60 +531,73 @@
 ;  1. Checks oracle freshness.
 ;  2. Computes the vault’s collateral ratio and requires it be below the protocol minimum.
 ;  3. Ensures the Stability Pool has enough kUSD to cover the vault’s outstanding debt.
-;  4. Calculates the liquidator’s KDA reward and the remaining collateral to return to the pool.
+;  4. Calculates the liquidator’s dynamic KDA reward and the remaining collateral to return to the pool.
 ;  5. Burns the vault’s kUSD debt from the Stability Pool, pays the liquidator their KDA bonus, sends the rest of the collateral into the pool, 
 ;     calls absorb-debt to absorb that collateral, and marks the vault as Liquidated.
-
 (defun liquidate-vault:string (liquidatorAccount:string targetVaultKey:string)
-  @doc "Liquidate undercollateralized vessel"
-    (with-capability (LIQUIDATE_VAULT liquidatorAccount targetVaultKey)
-      (with-read vessels targetVaultKey
-        { "collateralAmount" := vesselCollateralAmount
-        , "debtAmount"       := vesselDebtAmount
-        , "vaultKey"         := vaultKey }
-
-            ; Burn the vault’s kUSD debt out of the Stability Pool
-            ; Why do we do this: When the Stability Pool “burns” kUSD during a liquidation, 
-            ; it permanently removes those tokens from circulation. With fewer kUSD in the system, 
-            ; each remaining token becomes a bit more valuable. That shrinking supply helps keep kUSD trading close to its $1 target,
-            ; because demand balances out the reduced supply.
-            ; SO this is a crucial step!
-
-          ; Calculate the liquidator’s reward in KDA and the remainder to the pool
-          (let ((calculatedRewardAmount
-                   (* vesselCollateralAmount
-                      (get-config "LIQUIDATION_REWARD")))
-                 (collateralToReturnToPool
-                   (- vesselCollateralAmount calculatedRewardAmount))) 
-
-            ;; we cant just call this i know
-            (cdp.kusd-usd.burn
-              (get-vault-principal (cdp.stability-pool.pool-key))
-              vesselDebtAmount)
+  @doc "Liquidate undercollateralized vessel using dynamic risk-based rewards"
+  (with-capability (LIQUIDATE_VAULT liquidatorAccount targetVaultKey)
+    (with-read vessels targetVaultKey
+      { "collateralAmount" := vesselCollateralAmount
+      , "debtAmount"       := vesselDebtAmount
+      , "vaultKey"         := vaultKey }
 
 
-            ; Pay the liquidator their KDA reward
-            (coin.transfer
-              (get-vault-principal liquidatorAccount)
-              liquidatorAccount
-              calculatedRewardAmount)
+    ; Burn the vault’s kUSD debt out of the Stability Pool
+    ; Why do we do this: When the Stability Pool “burns” kUSD during a liquidation, 
+    ; it permanently removes those tokens from circulation. With fewer kUSD in the system, 
+    ; each remaining token becomes a bit more valuable. That shrinking supply helps keep kUSD trading close to its $1 target,
+    ; because demand balances out the reduced supply.
+    ; SO this is a crucial step!
 
-            ; Send the rest of the collateral into the Stability Pool
-            (coin.transfer
-              (get-vault-principal liquidatorAccount)
-              (get-vault-principal (cdp.stability-pool.pool-key))
-              collateralToReturnToPool)
+          
+      ; Added extra check ensuring vault is eligable for liquidation by computing current CR & protocol minimum 
+      ; and enforcing the under-collateralization
+      (let ((currentCollateralRatio (calculate-collateral-ratio vesselCollateralAmount vesselDebtAmount))
+            (minimumCollateralRatio     (get-config "MIN_CR" DEFAULT_MINIMUM_COLLATERAL_RATIO)))
+        (enforce (< currentCollateralRatio minimumCollateralRatio) "Vault not eligible for liquidation")
 
-            ; Tell the Stability Pool to absorb that collateral as “debt paid”
-            (cdp.stability-pool.absorb-debt collateralToReturnToPool)
+        ; Calculate the dynamic KDA reward ( instead of the 0.5, we calculate a dynamic reward ratio )
+        ; this in order to keep insentives interesting for liquidators
+        ; https://medium.com/@whiterabbit_hq/black-thursday-for-makerdao-8-32-million-was-liquidated-for-0-dai-36b83cac56b6
+        ; So on kadena even without gas spikes or zero‐bid auctions (makerDao), 
+        ; liquidators need strong incentives to step in during extreme price moves.  
+        ; A flat 0.5% reward may leave vaults uncleared when KDA crashes 60% in minutes, risking under‐collateralized debt.  
+        ; Dynamic, severity-scaling rewards align keeper profit with protocol health, ensuring liquidations always happen.  
+        ; Our Stability Pool backstop handles debt absorption, but liquidator participation is still critical to trigger absorb‐debt.  
+        ; Severity-adjusted fees guarantee timely vault clearing and protect kUSD’s $1 peg—even when markets move violently.  
 
-            ; MNark it liquidated
-            (update vessels targetVaultKey
-              { "collateralAmount": 0.0
-              , "debtAmount":       0.0
-              , "status":           "Liquidated" })
+        (let ((rewardPercentage (liquidation-reward currentCollateralRatio minimumCollateralRatio))
+              (collateralToPool  (- vesselCollateralAmount
+                (* vesselCollateralAmount rewardPct))))
+          
+          ; Burn the vault’s kUSD debt
+          (cdp.kusd-usd.burn
+            (get-vault-principal (cdp.stability-pool.pool-key))
+            vesselDebtAmount)
 
-            "LiquidationCompleted"))))
+          ; Pay liquidator risk-adjusted reward
+          (coin.transfer
+            (get-vault-principal vaultKey)
+            liquidatorAccount
+            (* vesselCollateralAmount rewardPercentage))
+
+          ; Return remaining collateral to pool
+          (coin.transfer
+            (get-vault-principal vaultKey)
+            (get-vault-principal (cdp.stability-pool.pool-key))
+            collateralToPool)
+
+          ; Absord to stability pool
+          (cdp.stability-pool.absorb-debt collateralToPool)
+
+          ; Liquidated!
+          (update vessels targetVaultKey
+            { "collateralAmount": 0.0
+            , "debtAmount":       0.0
+            , "status":           "Liquidated" })
+
+          "LiquidationCompleted")))))
 
 ;  When a kUSD holder calls redeem-kusd, the contract:
 ;  1. Enforces the caller’s REDEEM_KUSD capability and minimum redeem amount.
