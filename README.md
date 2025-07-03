@@ -113,7 +113,7 @@ Emily is a Kadena user who wants to borrow kUSD against her KDA.
 > **Success**
 >
 > - Emily mints 50 kUSD to herself
-> - 0.25 kUSD fee → fee-pool
+> - 0.25 kUSD fee -> fee-pool
 > - vessel debt = 50.25 kUSD
 
 **Edge**
@@ -148,7 +148,7 @@ Before burning any kUSD, Emily can see how much debt sits ahead of her vessel (h
    (free.cdp.redeem-kusd 10.0)
    ```
 
-2. Burns 9.95 kUSD net, fee → fee-pool, scans **all** vaults by LTV, repays debt and returns KDA.
+2. Burns 9.95 kUSD net, fee -> fee-pool, scans **all** vaults by LTV, repays debt and returns KDA.
 
 **Edges**
 
@@ -247,7 +247,7 @@ If she still held kUSD, she could:
 (free.cdp.repay-kusd 50.25)
 ```
 
-> Burns net kUSD, refunds time-based fee; debt → 0, status → `"Inactive"`.
+> Burns net kUSD, refunds time-based fee; debt -> 0, status -> `"Inactive"`.
 
 **Edges**
 
@@ -462,10 +462,10 @@ Key User Flows Explained:
 
    ## When to `redeem-kusd` vs. `repay-kusd`
 
-   | Action            | Use Case                                 | Fee     | Effect on _your_ vault                          |
-   | ----------------- | ---------------------------------------- | ------- | ----------------------------------------------- |
-   | **`repay-kusd`**  | You want to clear _your_ debt            | **0 %** | Immediate debt reduction → collateral returned  |
-   | **`redeem-kusd`** | You hold _extra_ kUSD and seek arbitrage | 0.5 %   | Burns kUSD → processes vaults in descending LTV |
+   | Action            | Use Case                                 | Fee     | Effect on _your_ vault                           |
+   | ----------------- | ---------------------------------------- | ------- | ------------------------------------------------ |
+   | **`repay-kusd`**  | You want to clear _your_ debt            | **0 %** | Immediate debt reduction -> collateral returned  |
+   | **`redeem-kusd`** | You hold _extra_ kUSD and seek arbitrage | 0.5 %   | Burns kUSD -> processes vaults in descending LTV |
 
    - **Always** use **`repay-kusd`** to pay down _your own_ vault: it’s the cheapest (0 % fee) and simplest path.
    - Use **`redeem-kusd`** only if you already have kUSD in wallet and want to arbitrage others’ vaults (capturing the 0.5 % discount on KDA).
@@ -561,12 +561,12 @@ Key User Flows Explained:
    Note right of CDP_Contract: Now vault owes 0.50 kUSD and holds 20.50 KDA
    ```
 
-   **Vault before:** 120 KDA / 100 kUSD → 83.3 % (actually _over_-collateralized vs. 110 % floor).
-   **Vault after:** (20.50 KDA / 0.50 kUSD) → 4100 % LTV!
+   **Vault before:** 120 KDA / 100 kUSD -> 83.3 % (actually _over_-collateralized vs. 110 % floor).
+   **Vault after:** (20.50 KDA / 0.50 kUSD) -> 4100 % LTV!
 
    - But you’ve paid a **0.5 kUSD fee** for zero net benefit: you end up with 120 KDA back _minus_ the fee, plus a tiny 0.5 kUSD debt to repay.
 
-   **Better:** just `repay-kusd(100)` → 0 % fee, close the vault.
+   **Better:** just `repay-kusd(100)` -> 0 % fee, close the vault.
 
    ***
 
@@ -928,8 +928,203 @@ This way the cdp would handle single vaults instead of going over all vaults
 
 ```
 
-## Doing this we gain:
+# Protocol Example & Glossary
 
-- Less gas consumption
-- Off-Chain Sorting
-- and simpeler code!
+For reference here is an extensive glossary of all core Kudos Protocol concepts, each with clear definitions and numeric examples.
+
+---
+
+## Vault Health Metrics Example
+
+| Step                       | KDA Price | Collateral Value         | Debt (kUSD) | LTV              | CR (1/LTV)      | Risk Exposure          |
+| -------------------------- | --------- | ------------------------ | ----------- | ---------------- | --------------- | ---------------------- |
+| **1. Healthy**             | \$1.50    | 100 × \$1.50 = \$150 USD | 100 kUSD    | 100/150 = 66.7 % | 150/100 = 150 % | 100×(1−1/1.5)=0 kUSD   |
+| **2. Borderline**          | \$1.10    | 100 × \$1.10 = \$110 USD | 100 kUSD    | 100/110 = 90.9 % | 110/100 = 110 % | 100×(1−1/1.1)=9.1 kUSD |
+| **3. Undercollateralized** | \$0.80    | 100 × \$0.80 = \$80 USD  | 100 kUSD    | 100/80 = 125 %   | 80/100 = 80 %   | 100×(1−0.8)=20 kUSD    |
+
+1. **Healthy (150 % CR / 66.7 % LTV)**
+   No Risk Exposure—vault is safe.
+
+2. **Borderline (110 % CR / 90.9 % LTV)**
+   $9.10 kUSD of debt isn’t fully covered.
+
+3. **Undercollateralized (80 % CR / 125 % LTV)**
+   $20 kUSD shortfall liquidators will cover this and seize that portion of collateral.
+
+---
+
+# Glossary
+
+### 1. Collateral (KDA)
+
+**Definition:**
+Tokens locked into your vault to secure your kUSD loan.
+
+**Example:**
+You deposit **100 KDA**. At $1.25 KDA, your collateral value is **100 × 1.25 = $125 USD**.
+
+---
+
+### 2. Borrow (kUSD)
+
+**Definition:**
+Minting kUSD against your locked collateral up to a safe Loan-to-Value.
+
+**Example:**
+With $125 collateral and 110 % min-CR, max borrow = $125/1.10 = **113.64 kUSD**.
+
+---
+
+### 3. Mint (kUSD)
+
+**Definition:**
+Creation of new kUSD tokens when you borrow from your vault. A small borrow-fee is minted to the fee pool.
+
+**Example:**
+Borrow 100 kUSD -> you receive 100 kUSD, fee = 100×0.5% = 0.5 kUSD minted to fee-pool.
+
+---
+
+### 4. Loan-to-Value (LTV)
+
+**Definition:**
+Debt divided by collateral value, shows leverage.
+
+```math
+LTV = \frac{\text{Debt (kUSD)}}{\text{Collateral Value (USD)}} \times 100\%
+```
+
+**Example:**
+100 kUSD debt vs \$150 collateral -> 100/150 = **66.7 % LTV**.
+
+---
+
+### 5. Collateral Ratio (CR)
+
+**Definition:**
+Inverse of LTV: collateral value over debt.
+
+```math
+CR = \frac{\text{Collateral Value (USD)}}{\text{Debt (kUSD)}} \times 100\%
+```
+
+**Example:**
+\$110 collateral vs 100 kUSD -> 110/100 = **110 % CR**.
+
+---
+
+### 6. Risk Exposure
+
+**Definition:**
+Absolute unbacked debt if liquidated now.
+
+```math
+RiskExposure = \text{Debt} \times (1 - \tfrac{1}{CR})
+              = \text{Debt} \times (1 - \tfrac{\text{Debt}}{\text{CollateralValue}})
+```
+
+**Example:**
+Debt 100 kUSD, CR 92 % -> 100×(1−0.92)=**8 kUSD** exposure.
+
+---
+
+### 7. Severity (for Liquidation Reward)
+
+**Definition:**
+How far below min-CR a vault is, on \[0, 1] scale.
+
+```math
+severity = \max\bigl(0,\frac{\text{minCR} - \text{currentCR}}{\text{minCR}}\bigr)
+```
+
+**Example:**
+minCR=110 %, currentCR=92 % -> severity=(1.10−0.92)/1.10≈**0.1636**.
+
+---
+
+### 8. Liquidation-Reward (Dynamic)
+
+**Definition:**
+Percent of collateral paid to liquidator: 0.5 % base + severity×1.5 %.
+
+```pact
+(defun liquidation-reward (currentCR minCR)
+  (let ((sev (max 0.0 (/ (- minCR currentCR) minCR))))
+    (+ 0.005 (* sev 0.015))))
+```
+
+**Example (92 % CR):**
+0.005 + 0.1636×0.015 ≈ 0.00745 -> **0.745 %** reward.
+
+---
+
+### 9. Liquidate-Vault
+
+**Definition:**
+Anyone can trigger if CR\<minCR.
+
+- Burns pool’s kUSD to clear debt.
+- Pays liquidator their dynamic reward in KDA.
+- Sends remaining collateral to Stability Pool.
+
+---
+
+### 10. Stability Pool
+
+**Definition:**
+Holds pooled kUSD from depositors.
+
+- On liquidation, burns kUSD to clear vault debt.
+- Distributes incoming collateral (minus liquidator reward) proportionally to depositors as yield.
+
+---
+
+### 11. Redeem-kUSD
+
+**Definition:**
+Holder burns kUSD to claim collateral from highest-LTV vaults at a small fee discount.
+
+- Fee 0.5 % goes to fee-pool/vaults.
+- Reduces system debt by burning kUSD.
+
+---
+
+### 12. Repay-kUSD
+
+**Definition:**
+Vault-owner burns kUSD to reduce their own debt, with pro-rata fee refunds.
+
+- No redemption fee.
+- Closes vault when debt hits zero.
+
+---
+
+### 13. Mint vs. Burn
+
+- **Mint:** Creates kUSD (on borrow).
+- **Burn:** Destroys kUSD (on repay, redeem, or liquidation).
+
+---
+
+### 14. Peg Protection
+
+**Definition:**
+Burning kUSD in liquidations and redemptions reduces supply, helping maintain \$1 peg.
+
+---
+
+### 15. CDP (Collateralized Debt Position)
+
+**Definition:**
+Your on-chain vault that tracks collateral, debt, and health.
+
+---
+
+## How They All Tie Together
+
+- **Open CDP** -> deposit **collateral** -> **borrow**/**mint** kUSD.
+- **Maintain** LTV≥min, or face **liquidation**: liquidator earns dynamic reward, rest goes to Stability Pool.
+- **Stability Pool** absorbs debt by **burning** its kUSD, depositors earn KDA yield.
+- **Repay** to close vault;
+- **Redeem** to arbitrage other vaults and burn kUSD.
+- All flows adjust **Risk Exposure**, **peg**, and keep system safe.
