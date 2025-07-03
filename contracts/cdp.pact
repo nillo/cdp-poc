@@ -375,14 +375,14 @@
   (defun liquidation-reward:decimal (currentCR:decimal minCR:decimal)
     @doc "Calculate dynamic liquidation reward based on risk severity"
     ; Formula: (minCR - currentCR) / minCR
-    ; Example: minCR=110%, currentCR=108% → (110-108)/110 = 1.82%
-    (let ((severity (max 0.0 (/ (- minCR currentCR) minCR))))
+    ; Example: minCR=110%, currentCR=108% -> (110-108)/110 = 1.82%
+    (let ((severity (max 0.0 (/ (- minCR currentCR) minCR)))) ; Severity range: [0, 1]
     
     ;Final reward percentage
       ; Base: 0.5% minimum reward
       ;Risk premium: Additional 0-1.5% scaled by severity
       ; Formula: 0.005 + (severity × 0.015)
-    (+ 0.005 (* severity 0.015))))
+    (+ 0.005 (* severity 0.015)))) ; 0.005 + (1.0 × 0.015) = 0.02 = 2.0%
   
   ;; borrow only
   (defun update-debt-amount (account:string newDebtAmount:decimal)
