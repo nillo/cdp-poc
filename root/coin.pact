@@ -688,3 +688,4 @@
     )))
 
 )
+(create-table coin-table) 
