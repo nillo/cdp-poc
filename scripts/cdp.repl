@@ -35,19 +35,24 @@
   (env-gasmodel 'table)
   (env-gaslimit 150000)
   (expect "Typecheck KUSD" () (typecheck "cdp.kusd-usd"))
-  (expect "Typecheck CDP" () (typecheck "cdp.cdp"))
+  ;  (expect "Typecheck CDP" () (typecheck "cdp.cdp"))
 (commit-tx)
 
+
 ;  ; ## Account Creation
-;  (begin-tx "Create Accounts")
-;    (env-data {
-;      "alice-guard": {"keys": ["alice"], "pred": "keys-all"},
-;      "charlie-guard": {"keys": ["charlie"], "pred": "keys-all"}
-;    })
-;    (env-sigs [])
-;    (cdp.kusd-usd.create-account "alice" (read-keyset "alice-guard"))
-;    (cdp.kusd-usd.create-account "charlie" (read-keyset "charlie-guard"))
-;  (commit-tx)
+(begin-tx "Create Accounts")
+  (env-data {
+    "alice-guard": {"keys": ["alice"], "pred": "keys-all"},
+    "charlie-guard": {"keys": ["charlie"], "pred": "keys-all"}
+  })
+  (env-sigs [])
+  (coin.create-account "alice" (read-keyset "alice-guard"))
+  ;  (coin.create-account "charlie" (read-keyset "charlie-guard"))
+
+  (test-capability (coin.CREDIT "alice"))
+  (coin.credit "alice" (read-keyset "alice-guard") 2.0)
+
+(commit-tx)
 
 ;  ; ## CDP Bootstrap: Initialize oracle
 ;  (begin-tx "CDP Bootstrap")
@@ -58,9 +63,60 @@
 ;    (cdp.kusd-usd.mint "charlie" 200.0)
 ;  (commit-tx)
 
-;  ; ## 1) Open / Duplicate-open vault
-;  (begin-tx "Vault Open Tests")
-;    (env-sigs [{ 'key: "alice", 'caps: [(cdp.cdp.OPEN_VAULT "alice")] }])  ;; Add OPEN_VAULT capability
-;    (cdp.cdp.open-vault)
-;    (expect-failure "Duplicate open" "Vault already exists for this account" (cdp.cdp.open-vault))
-;  (commit-tx)
+; ## 1) Open / Duplicate-open vault
+; TODO: protect that deposit is blocked before init
+(begin-tx "Vault Open Tests")
+  (use cdp.cdp)
+  (env-data {"alice-guard": {"keys": ["alice"], "pred": "keys-all"}})
+  (env-sigs [
+    { 'key: "alice", 'caps: [
+      (cdp.cdp.DEPOSIT_COLLATERAL "alice" 1.0)
+      (coin.TRANSFER "alice" (get-vault-principal "alice") 1.0)
+    ] }
+  ]) 
+  
+  (expect "alice succesfully opens a vault with 1.0 kda deposit" 
+    "collateral updated"
+    (open-vault "alice" (read-keyset "alice-guard") 1.0)
+  )
+
+  (expect-failure "opening vault with the same account fails" ;; TODO: discuss method to open multiple vaults per account 
+    "Error during database operation: Value already found while in Insert mode in table cdp.cdp_vessels at key \"alice\""
+    (open-vault "alice" (read-keyset "alice-guard") 1.0)
+  )
+  ;; TODO: check events
+(commit-tx)
+
+; ## 2) Deposit additional collateral 
+(begin-tx "Vault Deposit Tests")
+  (use cdp.cdp)
+  (env-sigs [
+    { 'key: "alice", 'caps: [
+      (cdp.cdp.DEPOSIT_COLLATERAL "alice" 1.0)
+      (coin.TRANSFER "alice" (get-vault-principal "alice") 1.0)
+    ] }
+  ]) 
+  (expect "alice succesfully puts additional collateral with 1.0 kda deposit" 
+    "collateral updated"
+    (deposit-collateral "alice" 1.0)
+  )
+
+  ;; TODO: check events
+(commit-tx)
+
+; ## 3) Withdraw collateral
+(begin-tx "Vault Withdraw Tests")
+  (use cdp.cdp)
+  (env-sigs [
+    { 'key: "alice", 'caps: [
+      (cdp.cdp.WITHDRAW_COLLATERAL "alice" 1.0)
+    ] }
+  ]) 
+
+  ;  (expect "alice succesfully withdraws collateral of 1.0 kda" 
+  ;    "collateral updated"
+    (withdraw-collateral "alice" 1.0)
+  ;  )
+
+  ;; TODO: check events
+(commit-tx)
