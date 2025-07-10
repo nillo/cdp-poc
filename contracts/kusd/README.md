@@ -23,7 +23,7 @@ Requires the GOVERNANCE signature and is limited to designated chains.
 - `guard: guard`
 
 **Events Emitted**
-- (REGISTER_MINT_GUARD guard) 
+- `(REGISTER_MINT_GUARD guard) `
 
 ### `register-burn-guard`
 
@@ -36,7 +36,7 @@ Requires the GOVERNANCE signature and is limited to designated chains.
 - `guard: guard`
 
 **Events Emitted**
-- (REGISTER_BURN_GUARD guard) 
+- `(REGISTER_BURN_GUARD guard) `
 
 ### `mint`
 
@@ -48,8 +48,8 @@ Mints `amount` of token to `account`. Creates the account if does not exist. The
 - `amount: decimal`
 
 **Events Emitted**
-- (TRANSFER "" account amount) 
-- (SUPPLY_UPDATED new-supply) 
+- `(TRANSFER "" account amount) `
+- `(SUPPLY_UPDATED new-supply)`
 
 ### `burn`
 
@@ -60,8 +60,8 @@ Burns `amount` of token from the `account`. The registered burn-guard is enforce
 - `amount: decimal`
 
 **Events Emitted**
-- (TRANSFER account "" amount) 
-- (SUPPLY_UPDATED new-supply) 
+- `(TRANSFER account "" amount)` 
+- `(SUPPLY_UPDATED new-supply)`
 
 ### `transfer`
 Transfers `amount` of token from the `sender` to the `receiver`. The sender's guard is enforced. Fails if `receiver` account does not exist
@@ -72,7 +72,7 @@ Transfers `amount` of token from the `sender` to the `receiver`. The sender's gu
 - `amount: decimal`
 
 **Events Emitted**
-- (TRANSFER sender receiver amount) 
+- `(TRANSFER sender receiver amount)`
 
 ### `transfer-create`
 Transfers `amount` of token from the `sender` to the `receiver`. The sender's guard is enforced. Creates `receiver` account if it does not exist. 
@@ -81,6 +81,12 @@ Transfers `amount` of token from the `sender` to the `receiver`. The sender's gu
 - `sender: string`
 - `receiver: string`
 - `amount: decimal`
+
+**Events Emitted**
+- `(TRANSFER sender receiver amount)`
+
+### `transfer-crosschain`
+TODO
 
 ## Getter Functions
 
