@@ -564,3 +564,5 @@
     (map (remove "module-hash") (env-events true)))
 
 (commit-tx)
+
+(expect "Gas is within bounds" true (< (env-gas) 3000))
