@@ -1,52 +1,40 @@
 ; ## Set namespace
-(load "../contracts/tests/set-defaults.repl")
+  (load "../tests/set-defaults.repl")
 
-; ## Load Keysets
-(begin-tx)
-  (env-data {
-    "admin-keyset": {"keys": ["admin"], "pred": "keys-all"},
-    "supply-manager-keyset": {"keys": ["supply-manager"], "pred": "keys-all"},
-    "freeze-manager-keyset": {"keys": ["freeze-manager"], "pred": "keys-all"}
-    })
-
-    (load "../contracts/tests/kusd.keys.pact")
-(commit-tx)
-
-
-; ## Contract Deployment
+; ## 0. Setup and Deploy Contract
 (begin-tx "Load contracts")
+  
+  (env-data {
+    "kusd.admin-keyset": {"keys": ["kusd-admin"], "pred": "keys-all"}
+  })
 
+  (load "../tests/kusd.keys.pact")
   (env-data { 'ns: "cdp", 'upgrade: false })
 
   (env-sigs [
-    { 'key: 'admin
+    { 'key: "kusd-admin"
     ,'caps: []
     }
   ])
 
-  (load "../contracts/kusd.pact")
-
+  (load "./kusd.pact")
+  (load "../tests/dummy-token.pact")
   (env-gasmodel 'table)(env-gaslimit 150000)
 
   (expect "typechecks"
     ()
     (typecheck "cdp.kusd-usd"))
 
+
+  (expect "events"
+    []
+    (map (remove "module-hash")  (env-events true))
+  )
+
 (commit-tx)
 
+;  ## 1. Utilities
 (begin-tx "Validate utilities")
-
-  (expect-failure "init fails if it has already been called"
-    "Error during database operation: Value already found while in Insert mode in table cdp.kusd-usd_token-info-table at key \"\""
-    (cdp.kusd-usd.init)
-  )
-
-  (env-sigs [])
-
-  (expect-failure "init fails if not called by governance"
-    "Keyset failure"
-    (cdp.kusd-usd.init)
-  )
 
   (expect "get precision"
     12
@@ -84,7 +72,8 @@
   )
 (commit-tx)
 
-; ## Account Creation
+
+;  ## 2. Account Creation
 (begin-tx "Account creation")
   (env-data {
     "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
@@ -121,44 +110,194 @@
 
 (commit-tx)
 
-; ## 3. Minting
+; ## 3. Mint
 (begin-tx "Mint tokens")
 
   (env-data {
     "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user3": "k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    ,"user1-key": {"keys": ["e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"], "pred": "keys-all"}
+    ,"user2-key": {"keys": ["c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"], "pred": "keys-all"}
   })
-
-  (expect-failure "Minting fails without supply-manager sig"
-    "Keyset failure"
-    (cdp.kusd-usd.mint (read-string "user1") 100.0)
-  )
-
  
   (expect-failure "Mint tokens to user1 fails if not called by registered mint guard"
     "No value found in table cdp.kusd-usd_capability-guard-table for key: mint"
-    (cdp.kusd-usd.mint (read-string "user1") 100.0))
+    (cdp.kusd-usd.mint (read-string "user1") (read-keyset "user1-key") 105.0))
 
-  (expect "Check balance after mint"
-    100.0
-    (cdp.kusd-usd.get-balance (read-string "user1")))
+  (env-sigs [
+    { 'key: "wrong-admin"
+    ,'caps: [(cdp.kusd-usd.GOVERNANCE)]
+    }
+  ])
 
-  (expect "Validate supply"
-    100.0
-    (at 'supply (cdp.kusd-usd.get-metadata))
+  (expect-failure "Register Mint guard on non-valid chain fails"
+    "Can only mint on chains [\"2\"]"
+    (cdp.dummy-token.register-kusd-mint-guard)
   )
 
-  (expect "Minting events"
-    [{"name": "cdp.kusd-usd.MINT", "params": [100.0, "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"]}
-    {"name": "cdp.kusd-usd.SUPPLY_UPDATED", "params": [100.0]}]
-    (map (remove "module-hash") (env-events true)))
+  (env-chain-data { "chain-id" : "2" })
+  
+  (expect-failure "Register Mint guard without admin signature fails"
+    "Keyset failure (keys-all): [kusd-adm...]"
+    (cdp.dummy-token.register-kusd-mint-guard)
+  ) 
+
+  (env-sigs [
+    { 'key: "kusd-admin"
+    ,'caps: [(cdp.kusd-usd.GOVERNANCE)]
+    }
+  ])
+
+  (expect "Registering mint guard from dummy-token succeeds"
+    "Write succeeded"
+    (cdp.dummy-token.register-kusd-mint-guard)
+  )
+
+  (expect "events"
+    [{"name": "cdp.kusd-usd.REGISTER_MINT_GUARD","params": [ (cdp.dummy-token.kusd-mint-guard) ]}]
+    (map (remove "module-hash")  (env-events true))
+  )
+
+  (expect "mint from registered mint guard contract"
+    true
+    (cdp.dummy-token.mint-kusd (read-string "user1") (read-keyset "user1-key") 105.0) 
+  )
+
+  (expect-failure "mint fails if amount is zero"
+    "Amount must be positive"
+    (cdp.dummy-token.mint-kusd (read-string "user1") (read-keyset "user1-key") 0.0) 
+  )
+
+  (expect-failure "mint fails if amount is negative"
+    "Amount must be positive"
+    (cdp.dummy-token.mint-kusd (read-string "user1") (read-keyset "user1-key") -100.0) 
+  )
+
+  (expect-failure "mint fails if not principal-account"
+    "Principal/guard name mismatch: all account names are required to be valid principals"
+    (cdp.dummy-token.mint-kusd (read-string "user3") (read-keyset "user1-key") 100.0) 
+  )
+
+  (expect-failure "mint fails if account does not match the registered guard"
+    "Account guards do not match"
+    (cdp.dummy-token.mint-kusd (read-string "user2") (read-keyset "user1-key") 100.0) 
+  )
+  
+  (expect "Check balance after mint"
+    105.0
+    (cdp.kusd-usd.get-balance (read-string "user1")))
+  
+  (expect "events"
+    [ {"name": "cdp.kusd-usd.TRANSFER","params": ["" "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" 105.0]} 
+      {"name": "cdp.kusd-usd.SUPPLY_UPDATED","params": [105.0]}]
+    (map (remove "module-hash")  (env-events true))
+  )  
+
+  (expect "Validate supply"
+    105.0
+    (cdp.kusd-usd.supply)
+  )
 
 (commit-tx)
 
-; ## Transferring
+; ## 4. Burn
+(begin-tx "Burn tokens")
+  (env-chain-data { "chain-id" : "" })
+  (env-data {
+    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
+    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user3": "k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+  })
+  
+  (env-sigs [
+    { 'key: "wrong-admin"
+    ,'caps: [(cdp.kusd-usd.GOVERNANCE)]
+    }
+  ])
+  
+  (expect-failure "Register Burn guard on non-valid chain fails"
+    "Can only burn on chains [\"2\"]"
+    (cdp.dummy-token.register-kusd-burn-guard)
+  )
+
+  (env-chain-data { "chain-id" : "2" })
+
+  (expect-failure "Register Burn guard without admin signature fails"
+    "Keyset failure (keys-all): [kusd-adm...]"
+    (cdp.dummy-token.register-kusd-burn-guard)
+  ) 
+
+  (env-sigs [
+    { 'key: "kusd-admin"
+    ,'caps: [(cdp.kusd-usd.GOVERNANCE)]
+    }
+  ])
+
+  (expect "Register Burn guard"
+    "Write succeeded"
+    (cdp.dummy-token.register-kusd-burn-guard)
+  ) 
+
+  (expect-failure "User cannot directly burn tokens"
+    "Capability not acquired: CapabilityGuard {name: cdp.dummy-token.KUSD_BURN"
+    (cdp.kusd-usd.burn (read-string "user1") 5.0))
+
+  (expect "Burn tokens from registered burn guard contract"
+    true
+    (cdp.dummy-token.burn-kusd (read-string "user1") 5.0) 
+  )
+
+  (expect-failure "Burn fails if the user does not exist"
+    "No value found in table cdp.kusd-usd_token-table for key: k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
+    (cdp.dummy-token.burn-kusd (read-string "user3") 5.0) 
+  )
+
+  (expect-failure "Burn fails if the the balance is not sufficient"
+    "Insufficient funds"
+    (cdp.dummy-token.burn-kusd (read-string "user1") 101.0) 
+  )
+
+  (expect-failure "Burn fails if the the amount is zero"
+    "Amount must be positive"
+    (cdp.dummy-token.burn-kusd (read-string "user1") 0.0) 
+  )
+
+  (expect-failure "Burn fails if the the amount is negative"
+    "Amount must be positive"
+    (cdp.dummy-token.burn-kusd (read-string "user1") -20.0) 
+  )
+
+  (expect "Check balance after burn"
+    100.0
+    (cdp.kusd-usd.get-balance (read-string "user1")))
+
+  (expect "Validate supply after burn"
+    100.0
+    (at 'supply (cdp.kusd-usd.get-metadata))
+  )
+  
+  (expect "Burning events"
+    [ {"name": "cdp.kusd-usd.REGISTER_BURN_GUARD","params": [(cdp.dummy-token.kusd-burn-guard)]} 
+      {"name": "cdp.kusd-usd.TRANSFER","params": ["k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" "" 5.0]}
+      {"name": "cdp.kusd-usd.SUPPLY_UPDATED","params": [100.0]}
+    ]
+    (map (remove "module-hash") (env-events true)))
+
+  (expect-failure "Updating supply without capability fails"
+    "require-capability: not granted: (cdp.kusd-usd.SUPPLY)"
+    (cdp.kusd-usd.update-supply 10.0)
+  )
+
+(commit-tx)
+
+
+; ## 5. Transfers
 (begin-tx "Transfer tokens")
   (env-data {
     "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
     ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
+    ,"user2-key": {"keys": ["c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"], "pred": "keys-all"}
     ,"user3": "k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"
     ,"user3-key": {"keys": ["6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3"], "pred": "keys-all"}
   })
@@ -171,7 +310,7 @@
 
   (expect "Transfer from user1 to user2"
     "Write succeeded"
-    (cdp.kusd-usd.transfer (read-string "user1") (read-string "user2") 25.0))
+    (cdp.kusd-usd.transfer-create (read-string "user1") (read-string "user2") (read-keyset "user2-key") 25.0))
 
   (expect "Check balance user1"
     75.0
@@ -197,19 +336,25 @@
   )
 
   (env-sigs [
-    { 'key: 'e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3
-    ,'caps: [(cdp.kusd-usd.TRANSFER (read-string "user1") (read-string "user2") 0.0)]
+    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
+    ,'caps: [(cdp.kusd-usd.TRANSFER (read-string "user2") (read-string "user1") 0.0)]
     }
   ])
 
   (expect-failure "transfer fails if amount is zero"
     "Amount must be positive"
-    (cdp.kusd-usd.transfer (read-string "user1") (read-string "user2") 0.0)
+    (cdp.kusd-usd.transfer (read-string "user2") (read-string "user1") 0.0)
   )
+  
+  (env-sigs [
+    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
+    ,'caps: [(cdp.kusd-usd.TRANSFER (read-string "user2") (read-string "user1") -1.0)]
+    }
+  ])
 
   (expect-failure "transfer fails if amount is negative"
     "Amount must be positive"
-    (cdp.kusd-usd.transfer (read-string "user1") (read-string "user2") -25.0)
+    (cdp.kusd-usd.transfer (read-string "user2") (read-string "user1") -1.0)
   )
 
   (env-sigs [
@@ -236,13 +381,22 @@
 
   (expect "transfer-create creates the account on transfer"
     "Write succeeded"
-    (cdp.kusd-usd.transfer-create (read-string "user1") (read-string "user3") (read-keyset "user3-key") 25.0)
+    (cdp.kusd-usd.transfer-create (read-string "user1") (read-string "user3") (read-keyset "user3-key") 20.0)
   )
 
-  (expect "balance is updated correctly"
-    25.0
+  (expect "balance is updated correctly - user1"
+    55.0
+    (cdp.kusd-usd.get-balance (read-string "user1"))
+  )
+
+  (expect "balance is updated correctly - user3"
+    20.0
     (cdp.kusd-usd.get-balance (read-string "user3"))
   )
+  
+  (expect "Transfer events"
+     [{"name": "cdp.kusd-usd.TRANSFER","params": ["k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3" "k:6778a9153dbfcfb787c9eb1700455a59af62b15008b71f805398d857bddb48f3" 20.0]}]
+    (map (remove "module-hash") (env-events true)))
 
   (expect-failure
     "direct call to credit fails"
@@ -257,7 +411,7 @@
 (commit-tx)
 
 
-; ## Transferring cross-chain
+; ## 6.1 Transferring cross-chain
 (begin-tx "Transfer tokens")
   (env-chain-data { "chain-id" : "0" })
   (env-hash (hash "transfer-crosschain"))
@@ -275,7 +429,7 @@
   ])
 
   (expect "Check balance user1"
-    50.0
+    55.0
     (cdp.kusd-usd.get-balance (read-string "user1")))
 
   (expect "Check balance user2"
@@ -302,7 +456,7 @@
     }
     (cdp.kusd-usd.transfer-crosschain (read-string "user1") (read-string "user2") (read-keyset "user2-key") "1" 1.0)
   )
-  
+
   (expect "Transfer-crosschain events"
     [ {"name": "cdp.kusd-usd.TRANSFER_XCHAIN","params": [(read-string "user1") (read-string "user2") 1.0 "1"]} 
       {"name": "cdp.kusd-usd.TRANSFER","params": [(read-string "user1") "" 1.0]} 
@@ -319,7 +473,7 @@
     (continue-pact 1 false (hash "transfer-crosschain")))
     
   (expect "Check balance is debited from user1"
-    49.0
+    54.0
     (cdp.kusd-usd.get-balance (read-string "user1")))
 
   (expect "Check balance is credited on user2"
@@ -336,7 +490,7 @@
 
 (rollback-tx)
 
-; ## Transferring cross-chain
+; ## 6.2 Transferring cross-chain
 (begin-tx "Transfer tokens from user1 to user1 on a different chain")
   (env-chain-data { "chain-id" : "0" })
   (env-hash (hash "transfer-crosschain-1"))
@@ -354,7 +508,7 @@
   ])
 
   (expect "Check balance user1"
-    50.0
+    55.0
     (cdp.kusd-usd.get-balance (read-string "user1")))
 
   (expect-failure "Transfer from user1 to user2 on the same chain"
@@ -387,7 +541,7 @@
     (map (remove "module-hash") (env-events true)))
 
   (expect "Check balance user1 is debited after step 1"
-    49.0
+    54.0
     (cdp.kusd-usd.get-balance (read-string "user1")))
 
   (env-chain-data { "chain-id" : "1" })
@@ -398,7 +552,7 @@
     (continue-pact 1 false (hash "transfer-crosschain-1")))
     
   (expect "Check balance user1 is credited after step 2"
-    50.0
+    55.0
     (cdp.kusd-usd.get-balance (read-string "user1")))
 
   (expect "Transfer-crosschain events"
@@ -411,44 +565,4 @@
 
 (commit-tx)
 
-; ## Burning
-(begin-tx "Burn tokens")
-
-  (env-data {
-    "user1": "k:e4c6807d79d8bf4695e10e5678ebf72862f59b71f971d39dd3349f4beeacd6e3"
-    ,"user2": "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"
-  })
-
-  (expect-failure "Burn tokens from user2 without sig fails"
-    "Keyset failure"
-    (cdp.kusd-usd.burn (read-string "user2") 5.0))
-
-  (env-sigs [
-    { 'key: 'c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7
-    ,'caps: [(cdp.kusd-usd.DEBIT (read-string "user2"))]
-    }
-  ])
-
-  (expect "Burn tokens from user2"
-    true
-    (cdp.kusd-usd.burn (read-string "user2") 5.0))
-
-  (expect "Check balance after burn"
-    20.0
-    (cdp.kusd-usd.get-balance (read-string "user2")))
-
-  (expect "Validate supply"
-    95.0
-    (at 'supply (cdp.kusd-usd.get-metadata))
-  )
-
-  (expect "Burning events"
-    [{"name": "cdp.kusd-usd.BURN", "params": [5.0, "k:c8493f58aaff5787a15c987cf35b41bbca164a41d8978913860805768ed66fe7"]}
-     {"name": "cdp.kusd-usd.SUPPLY_UPDATED", "params": [95.0]}]
-    (map (remove "module-hash") (env-events true)))
-
-  (expect-failure "Updating supply without capability fails"
-    "require-capability: not granted: "
-    (cdp.kusd-usd.update-supply 10.0))
-
-(commit-tx)
+(expect "Gas is within bounds" true (< (env-gas) 3000))
