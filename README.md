@@ -1156,21 +1156,21 @@ flowchart LR
 ```
 
 ### The Complete Flaw Sequence
-1. **On Chain 1 (Source):**
+**On Chain 1 (Source):**
    - Tokens debited from user (correct)
    - Supply decreased (wrong)
    - Collateral remains in CDP (critical flaw)
 
-2. **On Chain 2 (Target):**
+**On Chain 2 (Target):**
    - New tokens created for user 
    - Supply increased (wrong)
    - No collateral added (fatal flaw)
 
 ### Double Disaster
-1. **Accounting Error:**  
+**Accounting Error:**  
    We can fix the accounting error by removing "update-supply" within the crosschain calls but that doesn't account for the missing collateral.
 
-2. **Collateral Mismatch:**  
+**Collateral Mismatch:**  
    The transferred tokens on Chain 2 have **zero collateral backing** because:
    - Original collateral remains locked in Chain 1's CDP
    - No mechanism moves collateral between chains
