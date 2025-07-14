@@ -1128,3 +1128,113 @@ Your on-chain vault that tracks collateral, debt, and health.
 - **Repay** to close vault;
 - **Redeem** to arbitrage other vaults and burn kUSD.
 - All flows adjust **Risk Exposure**, **peg**, and keep system safe.
+
+# Issues
+
+The difference between brale and KUSD is braile is a centralized stablecoin, and KUSD is a CDP backed stablecoin, meaning the cdp controls the kusd in and outflow and is always backed by collateral.
+
+### With our CDP there are 3 Pillars of Stablecoin Integrity
+1. **Tokens** (KUSD)
+2. **Collateral** (KDA)
+3. **Accounting** (Supply tracking)
+
+In a proper cross-chain transfer:
+```mermaid
+flowchart LR
+    A[Tokens] -->|Move| B[Chain 2]
+    C[Collateral] -->|Move| D[Chain 2]
+    E[Accounting] -->|Remains| F[1:1 backed]
+```
+
+In the current implementation:
+```mermaid
+flowchart LR
+    A[Tokens] -->|Destroyed| X[Chain 1]
+    Y[New Tokens] -->|Created| B[Chain 2]
+    C[Collateral] -->|Stuck| D[Chain 1]
+    E[Accounting] -->|Broken| F[0:1 backed]
+```
+
+### The Complete Flaw Sequence
+1. **On Chain 1 (Source):**
+   - Tokens debited from user (correct)
+   - Supply decreased (wrong)
+   - Collateral remains in CDP (critical flaw)
+
+2. **On Chain 2 (Target):**
+   - New tokens created for user 
+   - Supply increased (wrong)
+   - No collateral added (fatal flaw)
+
+### Double Disaster
+1. **Accounting Error:**  
+   We can fix the accounting error by removing "update-supply" within the crosschain calls but that doesn't account for the missing collateral.
+
+2. **Collateral Mismatch:**  
+   The transferred tokens on Chain 2 have **zero collateral backing** because:
+   - Original collateral remains locked in Chain 1's CDP
+   - No mechanism moves collateral between chains
+
+### Why This Breaks the Stablecoin
+- **Chain 1:**  
+  Now has excess collateral (backing destroyed tokens)
+- **Chain 2:**  
+  Has new tokens with no collateral
+- **Global System:**  
+  Total tokens > Total collateral → depegging
+
+### What we could consider
+We need **two parallel systems**:
+
+#### 1. Token Transfer System (Current Contract)
+```pact
+(defpact transfer-crosschain (...)
+  (step
+    (debit sender amount)
+    ... NO SUPPLY CHANGE!
+  (step
+    (credit receiver ... amount) ; NO SUPPLY CHANGE
+  )
+)
+```
+
+#### 2. Collateral Transfer System (CDP Contract)
+```pact
+(defpact move-collateral (...)
+  (step
+    (cdp:release-collateral sender amount)
+    (yield ...)
+  (step
+    (cdp:lock-collateral receiver amount)
+  )
+)
+```
+
+### How They Should Work Together
+```mermaid
+sequenceDiagram
+    User->>Token Contract: transfer-crosschain(100)
+    Token Contract->>CDP Contract: release 100 collateral
+    CDP Contract->>Token Contract: confirm release
+    Token Contract->>Target Chain: Send tokens + collateral move proof
+    Target Chain->>CDP Contract: lock 100 collateral
+    Target Chain->>Token Contract: credit 100 tokens
+```
+
+###  Critical Requirements
+1. **Atomic Execution:** Both token transfer and collateral transfer must succeed or fail together, but we handle that with rollbacks
+2. **Cross-Chain Proofs:** Target chain must verify collateral was released on source chain
+3. **Supply Consistency:** Total collateral across all chains must always equal total KUSD supply
+
+So 
+**Short-term:** 
+We should remove cross-chain transfers until collateral movement is implemented
+
+**Medium-term:** 
+We could Implement a collateral escrow contract that holds collateral during transfers
+
+**Long-term:** Use KIP-0012 proofs to verify collateral movements between chains
+
+
+The token contract fix (removing supply updates) is necessary but insufficient. The collateral backing must move with the tokens to maintain the stablecoin's integrity across all chains.
+A well, just my 2 cents!
